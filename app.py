@@ -3954,8 +3954,47 @@ class MainWindow(QMainWindow):
                     self.db.add_monitored_folder(folder_path)
                 added_items.append(item)
 
-            # Case 3: Folder dropped
+            # Case 3: Folder dropped (Library Root or Single Game/Software)
             elif os.path.isdir(path):
+                # 3.1 Check if this folder is a Library collection root (e.g. SteamLibrary, steamapps/common, Epic Games, GOG Games, or multi-game folder)
+                path_name_lower = os.path.basename(path.rstrip('\\/')).lower()
+                has_steamapps = os.path.exists(os.path.join(path, "steamapps")) or os.path.exists(os.path.join(path, "common"))
+                is_known_library_name = any(kw in path_name_lower for kw in [
+                    "steam", "steamlibrary", "steamapps", "common", "epic", "ubisoft", "gog", "riot", "ea desktop", "games"
+                ])
+
+                try:
+                    dir_entries = os.listdir(path)
+                    subdirs = [d for d in dir_entries if os.path.isdir(os.path.join(path, d)) and d.lower() not in scanner.IGNORED_DIRS and not d.startswith('$')]
+                    root_has_exe = any(f.lower().endswith('.exe') for f in dir_entries if os.path.isfile(os.path.join(path, f)))
+                except Exception:
+                    subdirs = []
+                    root_has_exe = False
+
+                is_library_folder = False
+                scan_target = path
+                if has_steamapps:
+                    is_library_folder = True
+                    if os.path.exists(os.path.join(path, "steamapps", "common")):
+                        scan_target = os.path.join(path, "steamapps", "common")
+                    elif os.path.exists(os.path.join(path, "common")):
+                        scan_target = os.path.join(path, "common")
+                elif (is_known_library_name or len(subdirs) >= 2) and not root_has_exe:
+                    is_library_folder = True
+
+                if is_library_folder and not is_software_tab:
+                    # User dropped a whole game library collection!
+                    self.db.add_monitored_folder(scan_target)
+                    folder_display_name = os.path.basename(scan_target) or scan_target
+                    self.start_scan(scan_target)
+                    QMessageBox.information(
+                        self, "Library Scan Started",
+                        f"ตรวจพบโฟลเดอร์คลังเกม '{folder_display_name}'!\n"
+                        f"GameVault ได้เพิ่มเข้าสู่รายการตรวจสอบอัตโนมัติ และกำลังเริ่มสแกนค้นหาเกมทั้งหมด..."
+                    )
+                    return
+
+                # 3.2 Single Game or Software Folder
                 res = scanner.find_game_executable_in_folder(path)
                 if res:
                     exe_path, game_title = res
