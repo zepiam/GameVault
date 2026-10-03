@@ -1056,69 +1056,41 @@ class SettingsDialog(QDialog):
 
         # ==================== Page 4: Updates & About ====================
         page_about = QWidget()
-        pa_outer = QVBoxLayout(page_about)
-        pa_outer.setContentsMargins(0, 0, 0, 0)
+        pa_layout = QVBoxLayout(page_about)
+        pa_layout.setContentsMargins(8, 4, 8, 4)
+        pa_layout.setSpacing(14)
 
-        about_scroll = QScrollArea()
-        about_scroll.setWidgetResizable(True)
-        about_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-
-        about_content = QWidget()
-        pa_layout = QVBoxLayout(about_content)
-        pa_layout.setContentsMargins(8, 4, 14, 16)
-        pa_layout.setSpacing(16)
-
-        # Section Header
+        # Section 1: Header
         sec4_head = QVBoxLayout()
         sec4_head.setSpacing(4)
-        sec4_title = QLabel("อัปเดต & เกี่ยวกับโปรแกรม (Updates & About)")
+        sec4_title = QLabel("อัปเดต & ข้อมูลโปรแกรม (Updates & About)")
         sec4_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
-        sec4_desc = QLabel(
-            "GameVault - Game & Software Library by MeN9CH\n"
-            "ระบบตรวจสอบและติดตั้งเวอร์ชันใหม่อัตโนมัติผ่าน GitHub Releases"
-        )
-        sec4_desc.setWordWrap(True)
-        sec4_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; line-height: 1.5;")
+        sec4_desc = QLabel("GameVault - Game & Software Library by MeN9CH")
+        sec4_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
         sec4_head.addWidget(sec4_title)
         sec4_head.addWidget(sec4_desc)
         pa_layout.addLayout(sec4_head)
 
-        about_card = QFrame()
-        about_card.setStyleSheet(f"""
-            QFrame {{
-                background-color: #0b1118;
-                border: 1px solid {BORDER_DEFAULT};
-                border-radius: 8px;
-                padding: 16px;
-            }}
-        """)
-        ac_lay = QVBoxLayout(about_card)
-        ac_lay.setSpacing(10)
+        # Divider 1
+        sep_a1 = QFrame()
+        sep_a1.setFrameShape(QFrame.Shape.HLine)
+        sep_a1.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
+        pa_layout.addWidget(sep_a1)
+
+        # Section 2: Version & Update Controls (Clean flat layout, NO boxes)
+        upd_sec = QVBoxLayout()
+        upd_sec.setSpacing(10)
 
         curr_ver = updater.get_current_version()
-        v_lbl = QLabel(f"🏷️ <b>เวอร์ชันปัจจุบัน:</b> <span style='color: #38bdf8; font-weight: bold;'>v{curr_ver}</span>")
-        v_lbl.setStyleSheet("font-size: 14px;")
-        ac_lay.addWidget(v_lbl)
-
-        dev_lbl = QLabel("👤 <b>ผู้พัฒนา:</b> MeN9CH")
-        dev_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13px;")
-        ac_lay.addWidget(dev_lbl)
-
-        repo_link = QLabel("🌐 <b>GitHub Repository:</b> <a style='color: #60a5fa;' href='https://github.com/zepiam/GameVault'>https://github.com/zepiam/GameVault</a>")
-        repo_link.setOpenExternalLinks(True)
-        repo_link.setStyleSheet("font-size: 13px;")
-        ac_lay.addWidget(repo_link)
-
-        pa_layout.addWidget(about_card)
-
-        # Update action box
-        update_action_box = QVBoxLayout()
-        update_action_box.setSpacing(12)
+        v_lbl = QLabel(f"🏷️ เวอร์ชันปัจจุบัน: <b style='color: #38bdf8;'>v{curr_ver}</b> &nbsp;&nbsp;|&nbsp;&nbsp; 👤 ผู้พัฒนา: <b>MeN9CH</b> &nbsp;&nbsp;|&nbsp;&nbsp; 🌐 <a style='color: #60a5fa;' href='https://github.com/zepiam/GameVault'>GitHub Repository</a>")
+        v_lbl.setOpenExternalLinks(True)
+        v_lbl.setStyleSheet("font-size: 13.5px;")
+        upd_sec.addWidget(v_lbl)
 
         self.auto_update_cb = QCheckBox("ตรวจสอบการอัปเดตอัตโนมัติเมื่อเปิดโปรแกรม (Auto-check on startup)")
         self.auto_update_cb.setChecked(self.db.get_setting("auto_check_updates", True) if self.db else True)
         self.auto_update_cb.setCursor(Qt.CursorShape.PointingHandCursor)
-        update_action_box.addWidget(self.auto_update_cb)
+        upd_sec.addWidget(self.auto_update_cb)
 
         check_row = QHBoxLayout()
         check_row.setSpacing(12)
@@ -1131,7 +1103,7 @@ class SettingsDialog(QDialog):
                 border: 1px solid {ACCENT_BLUE};
                 color: {ACCENT_BLUE};
                 font-weight: bold;
-                padding: 10px 18px;
+                padding: 8px 18px;
                 font-size: 13px;
                 border-radius: 6px;
             }}
@@ -1147,82 +1119,80 @@ class SettingsDialog(QDialog):
         self.update_status_lbl.setStyleSheet("font-size: 13px; color: #94a3b8;")
         check_row.addWidget(self.update_status_lbl)
         check_row.addStretch()
+        upd_sec.addLayout(check_row)
 
-        update_action_box.addLayout(check_row)
-        pa_layout.addLayout(update_action_box)
+        pa_layout.addLayout(upd_sec)
 
-        # ---------------- Antivirus / Defender Exclusion Card ----------------
-        excl_card = QFrame()
-        excl_card.setStyleSheet(f"""
-            QFrame {{
-                background-color: #16130d;
-                border: 1px solid #b45309;
-                border-radius: 8px;
-                padding: 16px;
-            }}
-        """)
-        excl_lay = QVBoxLayout(excl_card)
-        excl_lay.setSpacing(10)
+        # Divider 2
+        sep_a2 = QFrame()
+        sep_a2.setFrameShape(QFrame.Shape.HLine)
+        sep_a2.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
+        pa_layout.addWidget(sep_a2)
 
-        excl_header = QLabel("🛡️ วิธีแก้ที่ผู้ใช้ต้องทำ ไม่เช่นนั้นโปรแกรมจะถูกแอนตี้ไวรัสในเครื่องลบทิ้ง")
-        excl_header.setStyleSheet("color: #f59e0b; font-size: 14px; font-weight: bold;")
-        excl_lay.addWidget(excl_header)
+        # Section 3: Antivirus & Windows Defender Instructions (Direct, flat, NO frames/boxes!)
+        sec_antivirus = QVBoxLayout()
+        sec_antivirus.setSpacing(8)
 
-        excl_sub = QLabel("💡 <b>ต้องเพิ่ม Exception ใน Windows Defender (ทำครั้งเดียว แก้ได้ถาวร):</b>")
-        excl_sub.setStyleSheet("color: #fbbf24; font-size: 13px;")
-        excl_lay.addWidget(excl_sub)
+        av_title = QLabel("🛡️ วิธีป้องกันไม่ให้ Windows Defender / แอนตี้ไวรัสลบโปรแกรมทิ้งเมื่ออัปเดต:")
+        av_title.setStyleSheet("color: #f59e0b; font-size: 13.5px; font-weight: bold;")
+        sec_antivirus.addWidget(av_title)
+
+        av_sub = QLabel("ต้องเพิ่ม Exception ใน Windows Defender (ทำครั้งเดียว แก้ได้ถาวร):")
+        av_sub.setStyleSheet("color: #e2e8f0; font-size: 13px; font-weight: 600;")
+        sec_antivirus.addWidget(av_sub)
 
         steps_text = QLabel(
-            "<b>1.</b> กด <code>Windows + I</code> ดูที่แถบด้านซ้ายมือ ไปที่ <b>Privacy & security</b> แล้วเลือก <b>Windows Security</b><br>"
-            "<b>2.</b> คลิก <b>Virus & threat protection</b> จะเปิดหน้าใหม่ขึ้นมา<br>"
-            "<b>3.</b> ที่หัวข้อ <b>\"Virus & threat protection settings\"</b> กด <b>Manage settings</b><br>"
-            "<b>4.</b> เลื่อนลงไปข้างล่างสุดจะเจอหัวข้อ <b>Exclusions</b> คลิก <b>Add or remove exclusions</b><br>"
-            "<b>5.</b> คลิก <b>Add an exclusion</b> → เลือก <b>Folder</b><br>"
-            "<b>6.</b> จากนั้นนำทางไปที่เก็บโฟลเดอร์โปรแกรมที่มีไฟล์ <code>GameVault.exe</code><br>"
-            "<b>7.</b> คลิก <b>Select Folder</b>"
+            "1. กด <code>Windows + I</code> ดูที่แถบด้านซ้ายมือ ไปที่ <b>Privacy & security</b> แล้วเลือก <b>Windows Security</b><br>"
+            "2. คลิก <b>Virus & threat protection</b> จะเปิดหน้าใหม่ขึ้นมา<br>"
+            "3. ที่หัวข้อ <b>\"Virus & threat protection settings\"</b> กด <b>Manage settings</b><br>"
+            "4. เลื่อนลงไปข้างล่างสุดจะเจอหัวข้อ <b>Exclusions</b> คลิก <b>Add or remove exclusions</b><br>"
+            "5. คลิก <b>Add an exclusion</b> → เลือก <b>Folder</b><br>"
+            "6. จากนั้นนำทางไปที่เก็บโฟลเดอร์โปรแกรมที่มีไฟล์ <code>GameVault.exe</code><br>"
+            "7. คลิก <b>Select Folder</b>"
         )
         steps_text.setTextFormat(Qt.TextFormat.RichText)
         steps_text.setWordWrap(True)
-        steps_text.setStyleSheet("color: #e2e8f0; font-size: 13px; line-height: 1.6;")
-        excl_lay.addWidget(steps_text)
+        steps_text.setStyleSheet("color: #cbd5e1; font-size: 12.5px; line-height: 1.5; padding-left: 8px;")
+        sec_antivirus.addWidget(steps_text)
 
-        open_sec_btn = QPushButton("🛡️ คลิกที่นี่เพื่อเปิดหน้า Windows Security ทันที (Open Windows Security)")
+        btn_row = QHBoxLayout()
+        open_sec_btn = QPushButton("🛡️ เปิดหน้า Windows Security ทันที (Open Settings)")
         open_sec_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_sec_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #78350f;
-                color: #fef3c7;
-                border: 1px solid #d97706;
+        open_sec_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {BG_CARD};
+                border: 1px solid {BORDER_DEFAULT};
+                color: #fbbf24;
                 border-radius: 6px;
-                padding: 9px 18px;
-                font-size: 13px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #92400e;
+                padding: 6px 14px;
+                font-size: 12.5px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: #272115;
+                border-color: #d97706;
                 color: #ffffff;
-            }
+            }}
         """)
         open_sec_btn.clicked.connect(lambda: subprocess.Popen(["cmd.exe", "/c", "start windowsdefender:"], shell=False))
-        excl_lay.addWidget(open_sec_btn)
+        btn_row.addWidget(open_sec_btn)
+        btn_row.addStretch()
+        sec_antivirus.addLayout(btn_row)
 
         note_box = QLabel(
-            "✅ <i>หลังจากนี้ Windows Defender หรือ Antivirus จะไม่สแกนแล้วลบโปรแกรมอีกแล้ว เมื่อกดอัพเดทผ่านในโปรแกรม</i><br><br>"
-            "<span style='color: #94a3b8; font-size: 12px;'>"
-            "💬 <b>หมายเหตุ:</b> โปรแกรมไม่ได้อันตรายอะไรครับ วินโดว์เขาพูดให้มันดูน่ากลัวๆ คนจะไม่กล้าใช้ "
-            "จะเรียกค่าไถ่โปรแกรม 400 ดอลล่า ต่อปีจากผู้พัฒนา (ใบรับรอง Code Signing) เพื่อให้ไม่โดนดักว่าเป็นโปรแกรมอันตรายแหน่ะ เลยต้องใช้วิธีนี้เอาครับ"
+            "<i>หลังจากนี้ Windows Defender หรือ Antivirus จะไม่สแกนแล้วลบโปรแกรมอีกแล้ว เมื่อกดอัปเดตผ่านในโปรแกรม</i><br>"
+            "<span style='color: #64748b; font-size: 11.5px;'>"
+            "โปรแกรมไม่ได้อันตรายอะไรครับ วินโดว์เขาพูดให้มันดูน่ากลัวๆ คนจะไม่กล้าใช้ "
+            "จะเรียกค่าไถ่โปรแกรม 400 ดอลล่า ต่อปีจากผู้พัฒนา เพื่อให้ไม่โดนดักว่าเป็นโปรแกรมอันตรายแหน่ะ เลยต้องใช้วิธีนี้เอา"
             "</span>"
         )
         note_box.setTextFormat(Qt.TextFormat.RichText)
         note_box.setWordWrap(True)
-        note_box.setStyleSheet("color: #cbd5e1; font-size: 12.5px; line-height: 1.5; margin-top: 4px;")
-        excl_lay.addWidget(note_box)
+        note_box.setStyleSheet("color: #94a3b8; font-size: 12px; line-height: 1.4;")
+        sec_antivirus.addWidget(note_box)
 
-        pa_layout.addWidget(excl_card)
+        pa_layout.addLayout(sec_antivirus)
         pa_layout.addStretch()
-
-        about_scroll.setWidget(about_content)
-        pa_outer.addWidget(about_scroll)
 
         self.pages.addWidget(page_about)
 
@@ -3812,11 +3782,18 @@ class MainWindow(QMainWindow):
             self.cover_thread.cover_downloaded.connect(self.on_cover_downloaded)
             self.cover_thread.start()
 
-        QMessageBox.information(
-            self,
-            "Scan Complete",
-            f"Finished scanning!\nDetected {new_count} new game(s) ({len(results)} scanned)."
-        )
+        if new_count == 0:
+            QMessageBox.information(
+                self,
+                "คลังเกมครบสมบูรณ์",
+                f"โฟลเดอร์นี้มีอยู่ในคลังครบหมดแล้ว!\n(ตรวจพบ {len(results)} รายการ ทั้งหมดอยู่ในคลังเรียบร้อยแล้ว ไม่พบเกมใหม่เพิ่มเติม)"
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Scan Complete",
+                f"สแกนเสร็จสิ้น!\nตรวจพบและเพิ่มเกมใหม่ {new_count} เกมเข้าสู่คลังเรียบร้อยแล้ว (ตรวจพบทั้งหมด {len(results)} เกม)"
+            )
 
     def add_single_item_manually(self, is_software: bool = False):
         title = "Select Software Executable or Shortcut" if is_software else "Select Game Executable or Shortcut"
@@ -3903,6 +3880,8 @@ class MainWindow(QMainWindow):
     def handle_dropped_files(self, file_paths: List[str]):
         is_software_tab = (self.current_filter_category == "software")
         added_items = []
+        already_known_names = []
+
         for path in file_paths:
             if not os.path.exists(path):
                 continue
@@ -3914,6 +3893,10 @@ class MainWindow(QMainWindow):
                 target_exe, launch_args, work_dir = self.resolve_shortcut(path)
                 folder_path = work_dir if work_dir and os.path.exists(work_dir) else os.path.dirname(target_exe)
                 clean_title = item_title if is_software_tab else (scanner.clean_game_name(item_title) or item_title)
+
+                if self.db.is_game_known(exe_path=target_exe or path, folder_path=folder_path):
+                    already_known_names.append(clean_title)
+                    continue
 
                 item = self.db.add_game(
                     name=clean_title,
@@ -3942,6 +3925,10 @@ class MainWindow(QMainWindow):
 
                     if not clean_title or len(clean_title) < 2:
                         clean_title = scanner.clean_game_name(path_obj.stem) or path_obj.stem
+
+                if self.db.is_game_known(exe_path=str(path_obj), folder_path=folder_path):
+                    already_known_names.append(clean_title)
+                    continue
 
                 item = self.db.add_game(
                     name=clean_title,
@@ -3987,17 +3974,16 @@ class MainWindow(QMainWindow):
                     self.db.add_monitored_folder(scan_target)
                     folder_display_name = os.path.basename(scan_target) or scan_target
                     self.start_scan(scan_target)
-                    QMessageBox.information(
-                        self, "Library Scan Started",
-                        f"ตรวจพบโฟลเดอร์คลังเกม '{folder_display_name}'!\n"
-                        f"GameVault ได้เพิ่มเข้าสู่รายการตรวจสอบอัตโนมัติ และกำลังเริ่มสแกนค้นหาเกมทั้งหมด..."
-                    )
                     return
 
                 # 3.2 Single Game or Software Folder
                 res = scanner.find_game_executable_in_folder(path)
                 if res:
                     exe_path, game_title = res
+                    if self.db.is_game_known(exe_path=exe_path, folder_path=path):
+                        already_known_names.append(game_title)
+                        continue
+
                     item = self.db.add_game(
                         name=game_title,
                         exe_path=exe_path,
@@ -4008,6 +3994,20 @@ class MainWindow(QMainWindow):
                     if not is_software_tab:
                         self.db.add_monitored_folder(path)
                     added_items.append(item)
+                else:
+                    folder_display_name = os.path.basename(path.rstrip('\\/')) or path
+                    already_known_names.append(folder_display_name)
+
+        if not added_items and already_known_names:
+            names = ", ".join(f"'{n}'" for n in already_known_names[:3])
+            if len(already_known_names) > 3:
+                names += f" และอีก {len(already_known_names) - 3} รายการ"
+            item_type_label = "โปรแกรม" if is_software_tab else "โฟลเดอร์หรือเกม"
+            QMessageBox.information(
+                self, "มีอยู่ในคลังแล้ว",
+                f"{item_type_label} {names} มีอยู่ในคลังครบหมดแล้ว (ไม่จำเป็นต้องเพิ่มซ้ำ)"
+            )
+            return
 
         if added_items:
             self.load_games_to_ui()
@@ -4023,15 +4023,20 @@ class MainWindow(QMainWindow):
             names = ", ".join(f"'{g['name']}'" for g in added_items[:3])
             if len(added_items) > 3:
                 names += f" and {len(added_items) - 3} more"
+
+            extra_info = ""
+            if already_known_names:
+                extra_info = f"\n(ส่วนอีก {len(already_known_names)} รายการ มีอยู่ในคลังเรียบร้อยแล้ว)"
+
             if is_software_tab:
                 QMessageBox.information(
                     self, "Software Added",
-                    f"เพิ่มโปรแกรม {names} เข้าสู่คลัง Software เรียบร้อยแล้ว!"
+                    f"เพิ่มโปรแกรม {names} เข้าสู่คลัง Software เรียบร้อยแล้ว!{extra_info}"
                 )
             else:
                 QMessageBox.information(
                     self, "Game Added",
-                    f"เพิ่มเกม {names} เข้าสู่คลัง GameVault เรียบร้อยแล้ว!\n(ระบบกำลังค้นหาและดึงภาพปกในพื้นหลัง)"
+                    f"เพิ่มเกม {names} เข้าสู่คลัง GameVault เรียบร้อยแล้ว!{extra_info}\n(ระบบกำลังค้นหาและดึงภาพปกในพื้นหลัง)"
                 )
 
     def load_games_to_ui(self):
