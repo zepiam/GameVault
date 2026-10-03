@@ -1056,8 +1056,16 @@ class SettingsDialog(QDialog):
 
         # ==================== Page 4: Updates & About ====================
         page_about = QWidget()
-        pa_layout = QVBoxLayout(page_about)
-        pa_layout.setContentsMargins(8, 4, 8, 4)
+        pa_outer = QVBoxLayout(page_about)
+        pa_outer.setContentsMargins(0, 0, 0, 0)
+
+        about_scroll = QScrollArea()
+        about_scroll.setWidgetResizable(True)
+        about_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        about_content = QWidget()
+        pa_layout = QVBoxLayout(about_content)
+        pa_layout.setContentsMargins(8, 4, 14, 16)
         pa_layout.setSpacing(16)
 
         # Section Header
@@ -1142,7 +1150,79 @@ class SettingsDialog(QDialog):
 
         update_action_box.addLayout(check_row)
         pa_layout.addLayout(update_action_box)
+
+        # ---------------- Antivirus / Defender Exclusion Card ----------------
+        excl_card = QFrame()
+        excl_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: #16130d;
+                border: 1px solid #b45309;
+                border-radius: 8px;
+                padding: 16px;
+            }}
+        """)
+        excl_lay = QVBoxLayout(excl_card)
+        excl_lay.setSpacing(10)
+
+        excl_header = QLabel("🛡️ วิธีแก้ที่ผู้ใช้ต้องทำ ไม่เช่นนั้นโปรแกรมจะถูกแอนตี้ไวรัสในเครื่องลบทิ้ง")
+        excl_header.setStyleSheet("color: #f59e0b; font-size: 14px; font-weight: bold;")
+        excl_lay.addWidget(excl_header)
+
+        excl_sub = QLabel("💡 <b>ต้องเพิ่ม Exception ใน Windows Defender (ทำครั้งเดียว แก้ได้ถาวร):</b>")
+        excl_sub.setStyleSheet("color: #fbbf24; font-size: 13px;")
+        excl_lay.addWidget(excl_sub)
+
+        steps_text = QLabel(
+            "<b>1.</b> กด <code>Windows + I</code> ดูที่แถบด้านซ้ายมือ ไปที่ <b>Privacy & security</b> แล้วเลือก <b>Windows Security</b><br>"
+            "<b>2.</b> คลิก <b>Virus & threat protection</b> จะเปิดหน้าใหม่ขึ้นมา<br>"
+            "<b>3.</b> ที่หัวข้อ <b>\"Virus & threat protection settings\"</b> กด <b>Manage settings</b><br>"
+            "<b>4.</b> เลื่อนลงไปข้างล่างสุดจะเจอหัวข้อ <b>Exclusions</b> คลิก <b>Add or remove exclusions</b><br>"
+            "<b>5.</b> คลิก <b>Add an exclusion</b> → เลือก <b>Folder</b><br>"
+            "<b>6.</b> จากนั้นนำทางไปที่เก็บโฟลเดอร์โปรแกรมที่มีไฟล์ <code>GameVault.exe</code><br>"
+            "<b>7.</b> คลิก <b>Select Folder</b>"
+        )
+        steps_text.setTextFormat(Qt.TextFormat.RichText)
+        steps_text.setWordWrap(True)
+        steps_text.setStyleSheet("color: #e2e8f0; font-size: 13px; line-height: 1.6;")
+        excl_lay.addWidget(steps_text)
+
+        open_sec_btn = QPushButton("🛡️ คลิกที่นี่เพื่อเปิดหน้า Windows Security ทันที (Open Windows Security)")
+        open_sec_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        open_sec_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #78350f;
+                color: #fef3c7;
+                border: 1px solid #d97706;
+                border-radius: 6px;
+                padding: 9px 18px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #92400e;
+                color: #ffffff;
+            }
+        """)
+        open_sec_btn.clicked.connect(lambda: subprocess.Popen(["cmd.exe", "/c", "start windowsdefender:"], shell=False))
+        excl_lay.addWidget(open_sec_btn)
+
+        note_box = QLabel(
+            "✅ <i>หลังจากนี้ Windows Defender หรือ Antivirus จะไม่สแกนแล้วลบโปรแกรมอีกแล้ว เมื่อกดอัพเดทผ่านในโปรแกรม</i><br><br>"
+            "<span style='color: #94a3b8; font-size: 12px;'>"
+            "💬 <b>หมายเหตุ:</b> โปรแกรมไม่ได้อันตรายอะไรครับ วินโดว์เขาพูดให้มันดูน่ากลัวๆ คนจะไม่กล้าใช้ "
+            "จะเรียกค่าไถ่โปรแกรม 400 ดอลล่า ต่อปีจากผู้พัฒนา (ใบรับรอง Code Signing) เพื่อให้ไม่โดนดักว่าเป็นโปรแกรมอันตรายแหน่ะ เลยต้องใช้วิธีนี้เอาครับ"
+            "</span>"
+        )
+        note_box.setTextFormat(Qt.TextFormat.RichText)
+        note_box.setWordWrap(True)
+        note_box.setStyleSheet("color: #cbd5e1; font-size: 12.5px; line-height: 1.5; margin-top: 4px;")
+        excl_lay.addWidget(note_box)
+
+        pa_layout.addWidget(excl_card)
         pa_layout.addStretch()
+
+        about_scroll.setWidget(about_content)
+        pa_outer.addWidget(about_scroll)
 
         self.pages.addWidget(page_about)
 
