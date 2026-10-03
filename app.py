@@ -579,7 +579,7 @@ class SettingsDialog(QDialog):
     def __init__(self, db: LibraryDB, parent=None):
         super().__init__(parent)
         self.db = db
-        self.setWindowTitle("การตั้งค่า - GameVault")
+        self.setWindowTitle("Setting - GameVault")
         self.resize(860, 620)
         self.setMinimumSize(820, 560)
         self.setStyleSheet(f"""
@@ -685,7 +685,7 @@ class SettingsDialog(QDialog):
 
         h_title_box = QVBoxLayout()
         h_title_box.setSpacing(4)
-        h_title = QLabel("⚙️ การตั้งค่าระบบ (Settings)")
+        h_title = QLabel("⚙️ Setting")
         h_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #f8fafc;")
         h_sub = QLabel("ปรับแต่งโฟลเดอร์คลังเกม, ระบบเริ่มต้นอัตโนมัติ, การแสดงผล Software และการเชื่อมต่อ SteamGridDB")
         h_sub.setStyleSheet("font-size: 13px; color: #94a3b8;")
@@ -715,10 +715,10 @@ class SettingsDialog(QDialog):
         self.nav_btns = []
         nav_items = [
             ("📁 โฟลเดอร์คลังเกม", "Monitored Folders"),
-            ("⚙️ ระบบ & ถาดงาน", "General & System"),
-            ("💻 คลังโปรแกรม", "Software & Icons"),
-            ("🎨 คลังภาพ SteamGridDB", "Cover Integration"),
-            ("🚀 อัปเดต & เกี่ยวกับ", "Updates & About"),
+            ("⚙️ ทั่วไป", "General"),
+            ("💻 ตั้งค่าคลัง", "Library Setting"),
+            ("🎨 เชื่อมต่อ SteamGridDB", "Integration"),
+            ("🚀 อัพเดท", "Update"),
         ]
 
         for idx, (title_th, sub_en) in enumerate(nav_items):
@@ -815,7 +815,7 @@ class SettingsDialog(QDialog):
         # Section Header
         sec1_head = QVBoxLayout()
         sec1_head.setSpacing(4)
-        sec1_title = QLabel("ระบบและการทำงานเบื้องหลัง (General & System)")
+        sec1_title = QLabel("ทั่วไป (General)")
         sec1_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         sec1_desc = QLabel("กำหนดพฤติกรรมการเปิดโปรแกรมและการทำงานร่วมกับ Windows System Tray")
         sec1_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
@@ -883,7 +883,7 @@ class SettingsDialog(QDialog):
         # Section Header
         sec2_head = QVBoxLayout()
         sec2_head.setSpacing(4)
-        sec2_title = QLabel("การจัดการแท็บ Software & โปรแกรม (Software Library)")
+        sec2_title = QLabel("ตั้งค่าคลัง (Library Setting)")
         sec2_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         sec2_desc = QLabel("ปรับแต่งการแสดงผลและพฤติกรรมของโปรแกรมทำงานที่คุณเพิ่มเข้ามาในคลัง")
         sec2_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
@@ -971,7 +971,7 @@ class SettingsDialog(QDialog):
         # Section Header
         sec3_head = QVBoxLayout()
         sec3_head.setSpacing(4)
-        sec3_title = QLabel("การเชื่อมต่อคลังภาพปก SteamGridDB (API Key)")
+        sec3_title = QLabel("เชื่อมต่อ SteamGridDB (Integration)")
         sec3_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         sec3_desc = QLabel("SteamGridDB เป็นคลังภาพปกเกมแนวตั้ง (Vertical 600×900) และ Fan-art คุณภาพสูงที่ใหญ่ที่สุด")
         sec3_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
@@ -1063,7 +1063,7 @@ class SettingsDialog(QDialog):
         # Section 1: Header
         sec4_head = QVBoxLayout()
         sec4_head.setSpacing(4)
-        sec4_title = QLabel("อัปเดต & ข้อมูลโปรแกรม (Updates & About)")
+        sec4_title = QLabel("อัพเดท (Update)")
         sec4_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         sec4_desc = QLabel("GameVault - Game & Software Library by MeN9CH")
         sec4_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
