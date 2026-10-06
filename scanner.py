@@ -90,6 +90,9 @@ RELEASE_TAGS = [
 # Common game library subdirectories across Steam, Epic Games, Ubisoft Connect, GOG Galaxy, and EA/Origin
 COMMON_LAUNCHER_SUBDIRS = [
     'SteamLibrary/steamapps/common',
+    'steamapps/common',
+    'Steam/steamapps/common',
+    'common',
     'Program Files (x86)/Steam/steamapps/common',
     'Program Files/Steam/steamapps/common',
     'Epic Games',
@@ -417,6 +420,9 @@ def scan_monitored_directories(directories: List[str], existing_checker=None, pr
                 all_target_folders.append(child)
         except PermissionError:
             pass
+
+        # Also check root_path itself if it is directly a game folder
+        all_target_folders.append(root_path)
 
     # Deduplicate
     unique_folders = []

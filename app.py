@@ -3363,7 +3363,11 @@ class MainWindow(QMainWindow):
         self.search_input.textChanged.connect(self.filter_games)
         header.addWidget(self.search_input)
 
-        # Count Badge
+        # Count Badge & Refresh Button
+        count_box = QHBoxLayout()
+        count_box.setSpacing(6)
+        count_box.setContentsMargins(0, 0, 0, 0)
+
         self.count_badge = QLabel("0 Items")
         self.count_badge.setStyleSheet(f"""
             background-color: {BG_PANEL};
@@ -3373,7 +3377,39 @@ class MainWindow(QMainWindow):
             font-size: 11px;
             font-weight: 600;
         """)
-        header.addWidget(self.count_badge)
+        count_box.addWidget(self.count_badge)
+
+        self.refresh_lib_btn = QPushButton("🔄")
+        self.refresh_lib_btn.setFixedSize(26, 26)
+        self.refresh_lib_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refresh_lib_btn.setToolTip("รีเฟรชคลังเกม และตรวจหาเกมใหม่ในโฟลเดอร์ที่บันทึกไว้ (Refresh & Scan)")
+        self.refresh_lib_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {BG_PANEL};
+                color: {TEXT_MUTED};
+                border: 1px solid {BORDER_DEFAULT};
+                border-radius: 6px;
+                font-size: 11px;
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                background-color: {BG_CARD};
+                border-color: {ACCENT_BLUE};
+                color: {ACCENT_BLUE};
+            }}
+            QPushButton:pressed {{
+                background-color: #1e293b;
+            }}
+            QPushButton:disabled {{
+                color: #475569;
+                border-color: #1e293b;
+                background-color: {BG_PANEL};
+            }}
+        """)
+        self.refresh_lib_btn.clicked.connect(self.on_refresh_clicked)
+        count_box.addWidget(self.refresh_lib_btn)
+
+        header.addLayout(count_box)
 
         main_layout.addWidget(header_widget)
 
@@ -3660,6 +3696,28 @@ class MainWindow(QMainWindow):
             self.db.add_monitored_folder(folder)
             self.start_scan(folder)
 
+    def on_refresh_clicked(self):
+        """Refreshes library UI and scans monitored directories for newly added games."""
+        if self.scanner_thread and self.scanner_thread.isRunning():
+            return
+
+        # 1. Reload existing games into UI grid & tabs
+        self.load_games_to_ui()
+
+        # 2. Check monitored folders for any new games installed
+        monitored = self.db.get_monitored_folders()
+        if monitored:
+            self.start_monitored_scan(silent=False)
+        else:
+            QMessageBox.information(
+                self,
+                "🔄 รีเฟรชคลังเกม (Refresh Library)",
+                "รีเฟรชคลังเกมเรียบร้อยแล้ว!\n\n"
+                "💡 หมายเหตุ: ยังไม่มีโฟลเดอร์ตรวจหาเกมในระบบ\n"
+                "หากต้องการให้โปรแกรมตรวจหาและเพิ่มเกมใหม่ที่ลงเพิ่มอัตโนมัติ "
+                "สามารถไปที่ปุ่ม ⚙ Settings ➔ หน้า 'โฟลเดอร์คลังเกม' เพื่อระบุโฟลเดอร์หรือไดร์ฟที่เก็บเกมไว้ได้ครับ"
+            )
+
     def start_scan(self, directory: str):
         if self.scanner_thread and self.scanner_thread.isRunning():
             return
@@ -3670,6 +3728,8 @@ class MainWindow(QMainWindow):
         self.scan_drive_btn.setEnabled(False)
         self.scan_folder_btn.setEnabled(False)
         self.sync_btn.setEnabled(False)
+        if hasattr(self, 'refresh_lib_btn'):
+            self.refresh_lib_btn.setEnabled(False)
 
         self.scanner_thread = ScannerThread(
             target_dir=directory,
@@ -3698,6 +3758,8 @@ class MainWindow(QMainWindow):
         self.scan_drive_btn.setEnabled(False)
         self.scan_folder_btn.setEnabled(False)
         self.sync_btn.setEnabled(False)
+        if hasattr(self, 'refresh_lib_btn'):
+            self.refresh_lib_btn.setEnabled(False)
 
         self.scanner_thread = ScannerThread(
             monitored_dirs=monitored,
@@ -3712,6 +3774,8 @@ class MainWindow(QMainWindow):
         self.scan_drive_btn.setEnabled(True)
         self.scan_folder_btn.setEnabled(True)
         self.sync_btn.setEnabled(True)
+        if hasattr(self, 'refresh_lib_btn'):
+            self.refresh_lib_btn.setEnabled(True)
 
         new_count = 0
         newly_added = []
@@ -3736,14 +3800,14 @@ class MainWindow(QMainWindow):
 
             if not silent:
                 QMessageBox.information(
-                    self, "Scan Complete",
+                    self, "🔄 ตรวจหาเกมใหม่ (Scan Complete)",
                     f"ตรวจพบและเพิ่มเกมใหม่ {new_count} เกมเรียบร้อยแล้ว!"
                 )
         else:
             if not silent:
                 QMessageBox.information(
-                    self, "Up to Date",
-                    "ไม่พบโฟลเดอร์เกมใหม่ ทุกเกมในโฟลเดอร์ที่บันทึกไว้เป็นปัจจุบันแล้ว!"
+                    self, "🔄 เป็นปัจจุบันแล้ว (Up to Date)",
+                    "ไม่พบเกมใหม่ ทุกเกมในโฟลเดอร์ที่บันทึกไว้เป็นปัจจุบันแล้ว!"
                 )
 
     def on_scan_progress(self, folder_name: str, current: int, total: int):
@@ -3761,6 +3825,8 @@ class MainWindow(QMainWindow):
         self.scan_drive_btn.setEnabled(True)
         self.scan_folder_btn.setEnabled(True)
         self.sync_btn.setEnabled(True)
+        if hasattr(self, 'refresh_lib_btn'):
+            self.refresh_lib_btn.setEnabled(True)
 
         new_count = 0
         newly_added = []
