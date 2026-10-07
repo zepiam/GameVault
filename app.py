@@ -579,9 +579,13 @@ class SettingsDialog(QDialog):
     def __init__(self, db: LibraryDB, parent=None):
         super().__init__(parent)
         self.db = db
+        self.main_window = parent if isinstance(parent, QMainWindow) else None
+        self._initial_theme = self.db.get_setting("theme_mode", "dark") if self.db else "dark"
+        self._initial_bg_path = self.db.get_setting("bg_image_path", "") if self.db else ""
+        self._initial_opacity = self.db.get_setting("bg_opacity", 30) if self.db else 30
         self.setWindowTitle("Setting - GameVault")
-        self.resize(860, 620)
-        self.setMinimumSize(820, 560)
+        self.resize(880, 680)
+        self.setMinimumSize(840, 620)
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {BG_MAIN};
@@ -672,6 +676,28 @@ class SettingsDialog(QDialog):
             QPushButton:hover {{
                 background-color: {BG_CARD};
                 border-color: {BORDER_HOVER};
+            }}
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 8px;
+                margin: 0px;
+                border-radius: 4px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: rgba(255, 255, 255, 0.15);
+                min-height: 24px;
+                border-radius: 4px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {ACCENT_BLUE};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+                background: none;
+                border: none;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
             }}
         """)
 
@@ -809,12 +835,12 @@ class SettingsDialog(QDialog):
         # ==================== Page 1: General & System Settings ====================
         page_general = QWidget()
         pg_layout = QVBoxLayout(page_general)
-        pg_layout.setContentsMargins(8, 4, 8, 4)
-        pg_layout.setSpacing(18)
+        pg_layout.setContentsMargins(8, 2, 8, 2)
+        pg_layout.setSpacing(10)
 
         # Section Header
         sec1_head = QVBoxLayout()
-        sec1_head.setSpacing(4)
+        sec1_head.setSpacing(2)
         sec1_title = QLabel("ทั่วไป (General)")
         sec1_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         sec1_desc = QLabel("กำหนดพฤติกรรมการเปิดโปรแกรมและการทำงานร่วมกับ Windows System Tray")
@@ -825,7 +851,7 @@ class SettingsDialog(QDialog):
 
         # Item 1: Windows Autostart
         item1_box = QVBoxLayout()
-        item1_box.setSpacing(4)
+        item1_box.setSpacing(2)
         self.run_startup_cb = QCheckBox("เริ่มทำงานอัตโนมัติเมื่อเปิดคอมพิวเตอร์ (Run on Windows Startup)")
         startup_val = self.db.get_setting("run_on_startup", is_windows_autostart_enabled()) if self.db else True
         self.run_startup_cb.setChecked(startup_val)
@@ -843,7 +869,7 @@ class SettingsDialog(QDialog):
 
         # Item 2: Close to Tray
         item2_box = QVBoxLayout()
-        item2_box.setSpacing(4)
+        item2_box.setSpacing(2)
         self.min_tray_close_cb = QCheckBox("ย่อลง System Tray เมื่อกดปิดหน้าต่าง [X] (Minimize to Tray on Close)")
         min_tray_val = self.db.get_setting("minimize_to_tray_on_close", True) if self.db else True
         self.min_tray_close_cb.setChecked(min_tray_val)
@@ -861,7 +887,7 @@ class SettingsDialog(QDialog):
 
         # Item 3: Platform Badges
         item3_box = QVBoxLayout()
-        item3_box.setSpacing(4)
+        item3_box.setSpacing(2)
         self.show_badges_cb = QCheckBox("แสดงป้ายกำกับแพลตฟอร์มบนการ์ดเกม (Show Platform Badges)")
         show_badges_val = self.db.get_setting("show_source_badges", True) if self.db else True
         self.show_badges_cb.setChecked(show_badges_val)
@@ -877,7 +903,7 @@ class SettingsDialog(QDialog):
 
         # Item 4: ธีมและภาพพื้นหลัง (Theme & Custom Background)
         theme_sec_box = QVBoxLayout()
-        theme_sec_box.setSpacing(10)
+        theme_sec_box.setSpacing(8)
 
         theme_head = QLabel("🎨 ธีมและภาพพื้นหลัง (Theme & Background):")
         theme_head.setStyleSheet("font-size: 14px; font-weight: bold; color: #f8fafc;")
@@ -905,6 +931,9 @@ class SettingsDialog(QDialog):
             self.radio_light.setChecked(True)
         else:
             self.radio_dark.setChecked(True)
+
+        self.radio_dark.toggled.connect(self.on_theme_changed)
+        self.radio_light.toggled.connect(self.on_theme_changed)
 
         theme_row.addWidget(self.radio_dark)
         theme_row.addWidget(self.radio_light)
@@ -959,7 +988,7 @@ class SettingsDialog(QDialog):
         self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
         self.opacity_slider.setRange(5, 100)
         self.opacity_slider.setValue(saved_opacity)
-        self.opacity_slider.valueChanged.connect(lambda v: self.opacity_val_lbl.setText(f"{v}%"))
+        self.opacity_slider.valueChanged.connect(self.on_opacity_changed)
         opacity_box.addWidget(self.opacity_slider)
 
         op_sub = QLabel("💡 ภาพจะซ้อนทับอยู่บนพื้นหลัง (อ้างอิงจากโหมดมืดหรือโหมดขาวที่เลือกไว้) ปรับค่าน้อยเพื่อให้มองเห็นปกเกมชัดเจน")
@@ -1440,6 +1469,13 @@ class SettingsDialog(QDialog):
         finally:
             self.check_update_btn.setEnabled(True)
 
+    def on_opacity_changed(self, val: int):
+        self.opacity_val_lbl.setText(f"{val}%")
+        self.preview_appearance()
+
+    def on_theme_changed(self):
+        self.preview_appearance()
+
     def browse_bg_image(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -1449,9 +1485,30 @@ class SettingsDialog(QDialog):
         )
         if file_path:
             self.bg_path_edit.setText(file_path)
+            self.preview_appearance()
 
     def clear_bg_image(self):
         self.bg_path_edit.clear()
+        self.preview_appearance()
+
+    def preview_appearance(self):
+        if not self.main_window:
+            return
+        theme = "light" if self.radio_light.isChecked() else "dark"
+        bg_path = self.bg_path_edit.text().strip()
+        opacity = self.opacity_slider.value() / 100.0
+        if hasattr(self.main_window, 'central_bg_widget'):
+            self.main_window.central_bg_widget.update_settings(theme, bg_path, opacity)
+
+    def reject(self):
+        # Revert live preview back to initial settings if cancelled
+        if self.main_window and hasattr(self.main_window, 'central_bg_widget'):
+            self.main_window.central_bg_widget.update_settings(
+                self._initial_theme,
+                self._initial_bg_path,
+                self._initial_opacity / 100.0
+            )
+        super().reject()
 
     def save_settings(self):
         key = self.key_input.text().strip()
@@ -3331,17 +3388,27 @@ class MainWindow(QMainWindow):
             QMainWindow {{ background-color: {BG_MAIN}; }}
             QWidget {{ font-family: 'Noto Sans Thai', 'Segoe UI Variable', 'Segoe UI', 'Leelawadee UI', sans-serif; }}
             QScrollBar:vertical {{
-                background: {BG_MAIN};
-                width: 10px;
-                border-radius: 5px;
+                background: transparent;
+                width: 8px;
+                margin: 0px;
+                border-radius: 4px;
             }}
             QScrollBar::handle:vertical {{
-                background: {BORDER_DEFAULT};
-                min-height: 20px;
-                border-radius: 5px;
+                background: rgba(255, 255, 255, 0.20);
+                min-height: 28px;
+                border-radius: 4px;
             }}
-            QScrollBar::handle:vertical:hover {{ background: {ACCENT_BLUE}; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+            QScrollBar::handle:vertical:hover {{
+                background: {ACCENT_BLUE};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+                background: none;
+                border: none;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
         """)
 
         self.central_bg_widget = BackgroundWidget()
@@ -3804,22 +3871,34 @@ class MainWindow(QMainWindow):
 
         colors = self.get_theme_colors()
 
+        sb_handle_color = "rgba(15, 23, 42, 0.25)" if theme_mode == "light" else "rgba(255, 255, 255, 0.20)"
+
         # Update QMainWindow scrollbars and main background
         self.setStyleSheet(f"""
             QMainWindow {{ background-color: {colors['bg_main']}; }}
             QWidget {{ font-family: 'Noto Sans Thai', 'Segoe UI Variable', 'Segoe UI', 'Leelawadee UI', sans-serif; }}
             QScrollBar:vertical {{
-                background: {colors['bg_main']};
-                width: 10px;
-                border-radius: 5px;
+                background: transparent;
+                width: 8px;
+                margin: 0px;
+                border-radius: 4px;
             }}
             QScrollBar::handle:vertical {{
-                background: {colors['border_default']};
-                min-height: 20px;
-                border-radius: 5px;
+                background: {sb_handle_color};
+                min-height: 28px;
+                border-radius: 4px;
             }}
-            QScrollBar::handle:vertical:hover {{ background: {ACCENT_BLUE}; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+            QScrollBar::handle:vertical:hover {{
+                background: {ACCENT_BLUE};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+                background: none;
+                border: none;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
         """)
 
         if hasattr(self, 'drive_lbl'):
