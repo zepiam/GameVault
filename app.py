@@ -1501,83 +1501,57 @@ class SettingsDialog(QDialog):
         sep_a2.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
         pa_layout.addWidget(sep_a2)
 
-        # Section 3: 1-Click Windows Defender Exclusion (Option A with Button A2)
+        # Section 3: 1-Click Windows Defender Exclusion (Design 2: Modern Settings Row)
         sec_antivirus = QVBoxLayout()
-        sec_antivirus.setSpacing(10)
+        sec_antivirus.setSpacing(12)
 
-        card_av = QFrame()
-        card_av.setObjectName("defenderCard")
-        card_av.setStyleSheet(f"""
-            QFrame#defenderCard {{
-                background-color: {BG_PANEL};
-                border: 1px solid {BORDER_DEFAULT};
-                border-radius: 10px;
-            }}
-        """)
-        av_layout = QVBoxLayout(card_av)
-        av_layout.setSpacing(10)
-        av_layout.setContentsMargins(14, 14, 14, 14)
+        # Main Row (Left: Info & Path, Right: Button & Status)
+        row_main = QHBoxLayout()
+        row_main.setSpacing(24)
 
-        av_title = QLabel("🛡️ ป้องกัน Windows Defender ลบไฟล์โปรแกรม/อัปเดต (1-Click Setup)")
-        av_title.setStyleSheet("color: #38bdf8; font-size: 14.5px; font-weight: bold;")
-        av_layout.addWidget(av_title)
+        # Left Column
+        col_left = QVBoxLayout()
+        col_left.setSpacing(4)
 
-        av_desc = QLabel("เพิ่มโฟลเดอร์ปัจจุบันและ GameVault.exe เข้าข้อยกเว้นของ Windows Defender อัตโนมัติในคลิกเดียว")
-        av_desc.setWordWrap(True)
+        av_title = QLabel("🛡️ ข้อยกเว้น Windows Defender (Exclusion)")
+        av_title.setStyleSheet("color: #f8fafc; font-size: 15px; font-weight: bold;")
+        col_left.addWidget(av_title)
+
+        av_desc = QLabel("ป้องกันไม่ให้แอนตี้ไวรัสลบไฟล์อัปเดตหรือตัวโปรแกรม GameVault")
         av_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px;")
-        av_layout.addWidget(av_desc)
+        col_left.addWidget(av_desc)
 
-        # Status Box
-        status_box = QFrame()
-        status_box.setStyleSheet("""
-            background-color: #1a2535;
-            border: 1px solid #2a3a4e;
-            border-radius: 8px;
-        """)
-        sb_layout = QVBoxLayout(status_box)
-        sb_layout.setSpacing(6)
-        sb_layout.setContentsMargins(10, 8, 10, 8)
-
-        sb_lbl = QLabel("สถานะข้อยกเว้น (Defender Exclusion Status):")
-        sb_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11.5px; font-weight: bold;")
-        sb_layout.addWidget(sb_lbl)
-
-        self.def_status_badge = QLabel()
-        self.def_status_badge.setStyleSheet("font-size: 12.5px; font-weight: bold; padding: 4px 10px; border-radius: 6px;")
-        sb_layout.addWidget(self.def_status_badge)
-        av_layout.addWidget(status_box)
-
-        # Target Path Box
         folder_p, exe_n = self.get_app_exclusion_targets()
-        path_box = QFrame()
-        path_box.setStyleSheet("""
-            background-color: #121924;
-            border: 1px solid #233041;
-            border-radius: 6px;
-        """)
-        pb_layout = QVBoxLayout(path_box)
-        pb_layout.setSpacing(2)
-        pb_layout.setContentsMargins(10, 8, 10, 8)
-        pb_title = QLabel("📁 โฟลเดอร์ปลายทางปัจจุบัน:")
-        pb_title.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11.5px;")
-        pb_val = QLabel(f"{folder_p}  ({exe_n})")
-        pb_val.setStyleSheet("color: #7dd3fc; font-size: 12px; font-family: 'Consolas', 'Segoe UI', monospace; font-weight: 600;")
-        pb_layout.addWidget(pb_title)
-        pb_layout.addWidget(pb_val)
-        av_layout.addWidget(path_box)
+        path_row = QHBoxLayout()
+        path_row.setSpacing(6)
+        path_lbl = QLabel("โฟลเดอร์เป้าหมาย:")
+        path_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
+        path_val = QLabel(f"{folder_p}\\{exe_n}")
+        path_val.setStyleSheet("color: #38bdf8; font-size: 12px; font-family: 'Consolas', 'Segoe UI', monospace; font-weight: 600;")
+        path_row.addWidget(path_lbl)
+        path_row.addWidget(path_val)
+        path_row.addStretch()
+        col_left.addLayout(path_row)
 
-        # Primary 1-Click Action Button (Button A2: Steam Blue Gradient, Clean, Solid)
-        self.one_click_btn = QPushButton("⚡ เพิ่มข้อยกเว้นอัตโนมัติ (1-Click Setup)")
+        row_main.addLayout(col_left, stretch=1)
+
+        # Right Column (Button & Status)
+        col_right = QVBoxLayout()
+        col_right.setSpacing(6)
+        col_right.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        self.one_click_btn = QPushButton("⚡ 1-Click Exclusion")
         self.one_click_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.one_click_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0284c7, stop:1 #0369a1);
                 color: #ffffff;
                 border: 1px solid #38bdf8;
-                border-radius: 8px;
-                padding: 11px 20px;
-                font-size: 14px;
+                border-radius: 6px;
+                padding: 9px 24px;
+                font-size: 13.5px;
                 font-weight: bold;
+                min-width: 170px;
             }
             QPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #38bdf8, stop:1 #0284c7);
@@ -1588,34 +1562,45 @@ class SettingsDialog(QDialog):
             }
         """)
         self.one_click_btn.clicked.connect(self.apply_one_click_exclusion)
-        av_layout.addWidget(self.one_click_btn)
+        col_right.addWidget(self.one_click_btn)
 
-        # UAC Notice Callout (With "เต็มจอ" as requested)
-        uac_callout = QFrame()
-        uac_callout.setStyleSheet("""
-            background-color: #112236;
-            border: 1px solid #2a4b6e;
-            border-radius: 8px;
+        self.def_status_badge = QLabel()
+        self.def_status_badge.setStyleSheet("font-size: 12px; font-weight: 500;")
+        self.def_status_badge.setAlignment(Qt.AlignmentFlag.AlignRight)
+        col_right.addWidget(self.def_status_badge)
+
+        row_main.addLayout(col_right)
+        sec_antivirus.addLayout(row_main)
+
+        # Sub-divider
+        sep_sub = QFrame()
+        sep_sub.setFrameShape(QFrame.Shape.HLine)
+        sep_sub.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
+        sec_antivirus.addWidget(sep_sub)
+
+        # Clean Notice Banner (Single subtle background band, NO borders)
+        uac_banner = QFrame()
+        uac_banner.setStyleSheet("""
+            background-color: #162232;
+            border: none;
+            border-radius: 6px;
         """)
-        uc_layout = QVBoxLayout(uac_callout)
-        uc_layout.setSpacing(4)
-        uc_layout.setContentsMargins(10, 8, 10, 8)
+        ub_layout = QVBoxLayout(uac_banner)
+        ub_layout.setSpacing(3)
+        ub_layout.setContentsMargins(12, 8, 12, 8)
 
-        uc_title = QLabel("คำแนะนำสำคัญ (เมื่อมีหน้าต่าง UAC เด้งขึ้นมาเต็มจอ):")
-        uc_title.setStyleSheet("color: #38bdf8; font-size: 12.5px; font-weight: bold;")
-        uc_desc = QLabel(
-            "👉 <b>กรุณากดปุ่ม \"Yes\"</b> เพื่ออนุญาตให้ระบบบันทึกค่าลงใน Windows Defender<br>"
-            "<span style='color: #94a3b8;'>* หากมีการย้ายโฟลเดอร์โปรแกรมในอนาคต สามารถกลับมากดปุ่มนี้อีกครั้งเพื่ออัปเดตปลายทาง</span>"
-        )
-        uc_desc.setTextFormat(Qt.TextFormat.RichText)
-        uc_desc.setWordWrap(True)
-        uc_desc.setStyleSheet("color: #f1f5f9; font-size: 12px; line-height: 1.4;")
-        uc_layout.addWidget(uc_title)
-        uc_layout.addWidget(uc_desc)
-        av_layout.addWidget(uac_callout)
+        warn_head = QLabel("⚠️ ข้อควรระวัง: เมื่อมีหน้าต่างขอสิทธิ์ (UAC) เด้งขึ้นมาเต็มจอ ให้กด \"Yes\" เพื่อยืนยัน")
+        warn_head.setStyleSheet("color: #fb923c; font-size: 12.5px; font-weight: bold;")
+        ub_layout.addWidget(warn_head)
 
-        # Secondary Manual Link & Developer Note
-        manual_row = QHBoxLayout()
+        warn_desc = QLabel("หากมีการย้ายโฟลเดอร์ในอนาคต ให้มากดปุ่ม 1-Click ด้านบนนี้ใหม่อีกครั้งเพื่ออัปเดตปลายทาง")
+        warn_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
+        ub_layout.addWidget(warn_desc)
+
+        sec_antivirus.addWidget(uac_banner)
+
+        # Bottom row: manual button + info
+        bot_row = QHBoxLayout()
         open_sec_btn = QPushButton("⚙️ เปิดหน้า Windows Security แบบแมนนวล (Manual Settings)")
         open_sec_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         open_sec_btn.setStyleSheet(f"""
@@ -1625,7 +1610,7 @@ class SettingsDialog(QDialog):
                 color: #64748b;
                 font-size: 12px;
                 text-align: left;
-                padding: 4px 0px;
+                padding: 2px 0px;
             }}
             QPushButton:hover {{
                 color: {TEXT_PRIMARY};
@@ -1633,21 +1618,13 @@ class SettingsDialog(QDialog):
             }}
         """)
         open_sec_btn.clicked.connect(lambda: subprocess.Popen(["cmd.exe", "/c", "start windowsdefender:"], shell=False))
-        manual_row.addWidget(open_sec_btn)
-        manual_row.addStretch()
-        av_layout.addLayout(manual_row)
+        bot_row.addWidget(open_sec_btn)
+        bot_row.addStretch()
 
-        note_box = QLabel(
-            "<span style='color: #64748b; font-size: 11.5px;'>"
-            "<i>โปรแกรมปลอดภัย 100% ครับ การทำ Exclusion จะป้องกันไม่ให้แอนตี้ไวรัสลบไฟล์อัปเดตทิ้ง เนื่องจากโปรแกรมไม่ได้ซื้อใบรับรองราคาแพงจากไมโครซอฟท์</i>"
-            "</span>"
-        )
-        note_box.setTextFormat(Qt.TextFormat.RichText)
-        note_box.setWordWrap(True)
-        note_box.setStyleSheet("color: #64748b; font-size: 11.5px; line-height: 1.3;")
-        av_layout.addWidget(note_box)
-
-        sec_antivirus.addWidget(card_av)
+        note_lbl = QLabel("* ปลอดภัย 100% พัฒนาโดย MeN9CH เพื่อไม่ให้โดนดักว่าเป็นโปรแกรมอันตราย")
+        note_lbl.setStyleSheet("color: #475569; font-size: 11.5px;")
+        bot_row.addWidget(note_lbl)
+        sec_antivirus.addLayout(bot_row)
 
         pa_layout.addLayout(sec_antivirus)
         pa_layout.addStretch()
@@ -1892,26 +1869,17 @@ class SettingsDialog(QDialog):
         return "active"
 
     def update_exclusion_status_ui(self):
-        """Updates the status badge reflecting current Windows Defender exclusion state."""
+        """Updates the status text reflecting current Windows Defender exclusion state."""
         st = self.check_exclusion_status()
         if st == "active":
-            self.def_status_badge.setText("🟢 ได้รับการยกเว้นแล้ว (Active Exclusion)")
-            self.def_status_badge.setStyleSheet(
-                "background-color: #143826; border: 1px solid #22c55e; color: #4ade80; "
-                "font-size: 12.5px; font-weight: bold; padding: 4px 10px; border-radius: 6px;"
-            )
+            self.def_status_badge.setText("🟢 สถานะ: ได้รับการยกเว้นแล้ว")
+            self.def_status_badge.setStyleSheet("color: #22c55e; font-size: 12px; font-weight: bold;")
         elif st == "relocated":
-            self.def_status_badge.setText("⚠️ ตรวจพบโฟลเดอร์ถูกย้ายที่ตั้ง กรุณากดปุ่มด้านล่างเพื่ออัปเดต (Relocated)")
-            self.def_status_badge.setStyleSheet(
-                "background-color: #3c2d0f; border: 1px solid #eab308; color: #fde047; "
-                "font-size: 12.5px; font-weight: bold; padding: 4px 10px; border-radius: 6px;"
-            )
+            self.def_status_badge.setText("⚠️ [เตือน] ตรวจพบการย้ายโฟลเดอร์")
+            self.def_status_badge.setStyleSheet("color: #eab308; font-size: 12px; font-weight: bold;")
         else:
-            self.def_status_badge.setText("⚪ ยังไม่เคยตั้งค่าข้อยกเว้นใน Windows Defender")
-            self.def_status_badge.setStyleSheet(
-                "background-color: #1e293b; border: 1px solid #475569; color: #94a3b8; "
-                "font-size: 12.5px; font-weight: bold; padding: 4px 10px; border-radius: 6px;"
-            )
+            self.def_status_badge.setText("⚪ สถานะ: ยังไม่ได้ตั้งค่า")
+            self.def_status_badge.setStyleSheet("color: #94a3b8; font-size: 12px;")
 
     def apply_one_click_exclusion(self):
         """Executes elevated PowerShell command to add current directory & exe to Windows Defender exclusions."""
