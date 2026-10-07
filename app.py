@@ -24,14 +24,15 @@ from typing import Optional, List, Dict
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QPoint, QUrl
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QLocalServer, QLocalSocket
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QAction, QCursor, QFontDatabase
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QAction, QCursor, QFontDatabase, QPen, QPainterPath
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox, QFileDialog,
     QProgressBar, QScrollArea, QGridLayout, QFrame, QDialog,
     QMessageBox, QMenu, QSizePolicy, QToolButton, QSlider, QTextEdit,
     QColorDialog, QListWidget, QListWidgetItem, QCheckBox, QSystemTrayIcon,
-    QStackedWidget, QFileIconProvider, QRadioButton, QButtonGroup
+    QStackedWidget, QFileIconProvider, QRadioButton, QButtonGroup,
+    QProxyStyle, QStyle
 )
 
 import winreg
@@ -199,13 +200,97 @@ def get_cached_cover_pixmap(cover_path: str, poster_width: int, poster_height: i
 
 def clear_cover_cache(cover_path: Optional[str] = None):
     """Invalidates cached cover pixmaps when a cover is downloaded or updated."""
-    global _COVER_CACHE
+    global _COVER_CACHE, _TRAY_THUMB_CACHE
     if cover_path:
         keys_to_del = [k for k in _COVER_CACHE if k.startswith(f"{cover_path}|")]
         for k in keys_to_del:
             _COVER_CACHE.pop(k, None)
+        _TRAY_THUMB_CACHE.pop(cover_path, None)
     else:
         _COVER_CACHE.clear()
+        _TRAY_THUMB_CACHE.clear()
+
+
+class TrayMenuStyle(QProxyStyle):
+    """Custom style for system tray context menu supporting 4:3 (40x30) cover thumbnails."""
+    def pixelMetric(self, metric, option=None, widget=None):
+        if metric == QStyle.PixelMetric.PM_SmallIconSize:
+            return 40
+        return super().pixelMetric(metric, option, widget)
+
+
+_TRAY_THUMB_CACHE: Dict[str, QPixmap] = {}
+_TRAY_PLACEHOLDER_THUMB: Optional[QPixmap] = None
+
+def get_tray_cover_thumbnail(cover_path: Optional[str] = None, width: int = 40, height: int = 30) -> QPixmap:
+    """
+    Creates or returns a cached 4:3 (40x30) thumbnail for the tray context menu.
+    If cover_path exists, renders smooth-scaled rounded cover art.
+    If no cover exists, renders a sleek rounded frame with '?' in the center.
+    """
+    global _TRAY_PLACEHOLDER_THUMB, _TRAY_THUMB_CACHE
+
+    if cover_path and os.path.exists(cover_path):
+        if cover_path in _TRAY_THUMB_CACHE:
+            return _TRAY_THUMB_CACHE[cover_path]
+
+        try:
+            src = QPixmap(cover_path)
+            if not src.isNull():
+                scaled = src.scaled(
+                    width, height,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                crop_x = max(0, (scaled.width() - width) // 2)
+                crop_y = max(0, (scaled.height() - height) // 2)
+                cropped = scaled.copy(crop_x, crop_y, width, height)
+
+                res = QPixmap(width, height)
+                res.fill(Qt.GlobalColor.transparent)
+                p = QPainter(res)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+                path = QPainterPath()
+                path.addRoundedRect(0.5, 0.5, width - 1, height - 1, 4, 4)
+                p.setClipPath(path)
+                p.drawPixmap(0, 0, cropped)
+
+                # Subtle 1px inner border
+                p.setClipping(False)
+                p.setPen(QPen(QColor(255, 255, 255, 40), 1))
+                p.drawPath(path)
+                p.end()
+
+                _TRAY_THUMB_CACHE[cover_path] = res
+                return res
+        except Exception as e:
+            print(f"[TrayThumb] Error loading {cover_path}: {e}")
+
+    # Fallback placeholder (frame with '?')
+    if _TRAY_PLACEHOLDER_THUMB is not None:
+        return _TRAY_PLACEHOLDER_THUMB
+
+    placeholder = QPixmap(width, height)
+    placeholder.fill(Qt.GlobalColor.transparent)
+    p = QPainter(placeholder)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    path = QPainterPath()
+    path.addRoundedRect(0.5, 0.5, width - 1, height - 1, 4, 4)
+    p.fillPath(path, QColor("#1e293b"))
+    p.setPen(QPen(QColor("#475569"), 1))
+    p.drawPath(path)
+
+    p.setPen(QColor("#94a3b8"))
+    font = QFont("Segoe UI Variable", 12, QFont.Weight.Bold)
+    p.setFont(font)
+    p.drawText(0, 0, width, height, Qt.AlignmentFlag.AlignCenter, "?")
+    p.end()
+
+    _TRAY_PLACEHOLDER_THUMB = placeholder
+    return _TRAY_PLACEHOLDER_THUMB
 
 
 def get_game_platform(game: Dict) -> str:
@@ -5016,18 +5101,21 @@ class MainWindow(QMainWindow):
         self.tray_icon.setToolTip("GameVault - Game & Software Library by MeN9CH")
 
         self.tray_menu = QMenu()
+        self.tray_menu_style = TrayMenuStyle()
+        self.tray_menu.setStyle(self.tray_menu_style)
         self.tray_menu.setStyleSheet(f"""
             QMenu {{
                 background-color: {BG_PANEL};
                 color: {TEXT_PRIMARY};
                 border: 1px solid {BORDER_DEFAULT};
-                border-radius: 6px;
-                padding: 4px;
+                border-radius: 8px;
+                padding: 6px;
+                font-family: 'Segoe UI', 'Noto Sans Thai', sans-serif;
             }}
             QMenu::item {{
-                padding: 7px 20px;
-                border-radius: 4px;
-                font-size: 12px;
+                padding: 6px 14px;
+                border-radius: 6px;
+                font-size: 13px;
             }}
             QMenu::item:selected {{
                 background-color: {BG_CARD_HOVER};
@@ -5057,8 +5145,10 @@ class MainWindow(QMainWindow):
             for g in recent_items:
                 name = g.get("name", "Unknown")
                 disp_name = (name[:26] + "..") if len(name) > 28 else name
-                prefix = "💻" if (g.get("is_software") or g.get("item_type") == "software") else "▶"
-                act = self.tray_menu.addAction(f"   {prefix}  {disp_name}")
+                cover_p = g.get("cover_path")
+                thumb_pix = get_tray_cover_thumbnail(cover_p, width=40, height=30)
+                icon = QIcon(thumb_pix)
+                act = self.tray_menu.addAction(icon, disp_name)
                 act.triggered.connect(lambda _, game=g: self.launch_game(game))
             self.tray_menu.addSeparator()
 
