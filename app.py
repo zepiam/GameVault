@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QMenu, QSizePolicy, QToolButton, QSlider, QTextEdit,
     QColorDialog, QListWidget, QListWidgetItem, QCheckBox, QSystemTrayIcon,
     QStackedWidget, QFileIconProvider, QRadioButton, QButtonGroup,
-    QProxyStyle, QStyle
+    QProxyStyle, QStyle, QWidgetAction
 )
 
 import winreg
@@ -291,6 +291,96 @@ def get_tray_cover_thumbnail(cover_path: Optional[str] = None, width: int = 40, 
 
     _TRAY_PLACEHOLDER_THUMB = placeholder
     return _TRAY_PLACEHOLDER_THUMB
+
+
+class TrayHeaderWidget(QWidget):
+    """Header item for System Tray context menu with centered text, dark background, and underline."""
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 4)
+        layout.setSpacing(0)
+
+        # Header bar with darker background
+        top_bar = QWidget()
+        top_bar.setStyleSheet("background-color: #080c14; border-radius: 6px 6px 0 0;")
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(8, 7, 8, 7)
+
+        lbl = QLabel(title)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: bold; letter-spacing: 0.5px;")
+        top_layout.addWidget(lbl)
+        layout.addWidget(top_bar)
+
+        # Hairline divider
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background-color: #1e293b; max-height: 1px; border: none;")
+        layout.addWidget(sep)
+
+
+class TrayRecentGameWidget(QWidget):
+    """Compact recent game item for System Tray with 4:3 cover thumbnail, right padding, and hover effect."""
+    def __init__(self, cover_pixmap: QPixmap, title: str, action: QWidgetAction, on_click=None, parent=None):
+        super().__init__(parent)
+        self.action = action
+        self.on_click = on_click
+        self._hovered = False
+        self.setFixedHeight(34)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setSpacing(12)  # Generous padding between cover and title
+
+        # 4:3 Cover thumbnail (40x30)
+        img_lbl = QLabel()
+        img_lbl.setFixedSize(40, 30)
+        img_lbl.setPixmap(cover_pixmap)
+        img_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        layout.addWidget(img_lbl)
+
+        # Game title
+        self.title_lbl = QLabel(title)
+        self.title_lbl.setStyleSheet("color: #f1f5f9; font-size: 13px; font-weight: 500;")
+        self.title_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        layout.addWidget(self.title_lbl, 1)
+
+        self._update_style()
+
+    def _update_style(self):
+        if self._hovered:
+            self.setStyleSheet("TrayRecentGameWidget { background-color: #1e293b; border-radius: 5px; }")
+            self.title_lbl.setStyleSheet("color: #38bdf8; font-size: 13px; font-weight: 600;")
+        else:
+            self.setStyleSheet("TrayRecentGameWidget { background-color: transparent; border-radius: 5px; }")
+            self.title_lbl.setStyleSheet("color: #f1f5f9; font-size: 13px; font-weight: 500;")
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self._update_style()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._update_style()
+        super().leaveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Find parent QMenu and close
+            p = self.parent()
+            while p and not isinstance(p, QMenu):
+                p = p.parent()
+            if p:
+                p.close()
+            if self.action:
+                self.action.trigger()
+            elif self.on_click:
+                self.on_click()
+        super().mouseReleaseEvent(event)
 
 
 def get_game_platform(game: Dict) -> str:
@@ -5101,20 +5191,18 @@ class MainWindow(QMainWindow):
         self.tray_icon.setToolTip("GameVault - Game & Software Library by MeN9CH")
 
         self.tray_menu = QMenu()
-        self.tray_menu_style = TrayMenuStyle()
-        self.tray_menu.setStyle(self.tray_menu_style)
         self.tray_menu.setStyleSheet(f"""
             QMenu {{
                 background-color: {BG_PANEL};
                 color: {TEXT_PRIMARY};
                 border: 1px solid {BORDER_DEFAULT};
                 border-radius: 8px;
-                padding: 6px;
+                padding: 4px;
                 font-family: 'Segoe UI', 'Noto Sans Thai', sans-serif;
             }}
             QMenu::item {{
-                padding: 6px 14px;
-                border-radius: 6px;
+                padding: 7px 16px;
+                border-radius: 5px;
                 font-size: 13px;
             }}
             QMenu::item:selected {{
@@ -5139,34 +5227,46 @@ class MainWindow(QMainWindow):
         include_software = self.db.get_setting("tray_include_software", False) if self.db else False
         recent_items = self.db.get_recently_played_games(limit=5, include_software=include_software)
         if recent_items:
-            hdr_text = "🎮 รายการล่าสุด (Recent Games & Software):" if include_software else "🎮 เกมล่าสุด (Recent Games):"
-            hdr = self.tray_menu.addAction(hdr_text)
-            hdr.setEnabled(False)
+            hdr_text = "🎮  รายการล่าสุด (RECENT GAMES & SOFTWARE)" if include_software else "🎮  เกมล่าสุด (RECENT GAMES)"
+            hdr_act = QWidgetAction(self.tray_menu)
+            hdr_act.setDefaultWidget(TrayHeaderWidget(hdr_text, self.tray_menu))
+            self.tray_menu.addAction(hdr_act)
+
             for g in recent_items:
                 name = g.get("name", "Unknown")
                 disp_name = (name[:26] + "..") if len(name) > 28 else name
                 cover_p = g.get("cover_path")
                 thumb_pix = get_tray_cover_thumbnail(cover_p, width=40, height=30)
-                icon = QIcon(thumb_pix)
-                act = self.tray_menu.addAction(icon, disp_name)
+
+                act = QWidgetAction(self.tray_menu)
+                act_widget = TrayRecentGameWidget(
+                    cover_pixmap=thumb_pix,
+                    title=disp_name,
+                    action=act,
+                    on_click=lambda game=g: self.launch_game(game),
+                    parent=self.tray_menu
+                )
+                act.setDefaultWidget(act_widget)
                 act.triggered.connect(lambda _, game=g: self.launch_game(game))
+                self.tray_menu.addAction(act)
+
             self.tray_menu.addSeparator()
 
-        # Section 2: Window Controls
-        act_library = self.tray_menu.addAction("📂 เปิดคลัง GameVault (Library)")
+        # Section 2: Window Controls (Clean left-aligned with elegant padding)
+        act_library = self.tray_menu.addAction("📂  เปิดคลัง GameVault (Library)")
         act_library.triggered.connect(self.show_and_activate)
 
-        act_scan = self.tray_menu.addAction("🔄 สแกนหาเกมใหม่ (Scan)")
+        act_scan = self.tray_menu.addAction("🔄  สแกนหาเกมใหม่ (Scan)")
         act_scan.triggered.connect(lambda: self.start_monitored_scan(silent=False))
 
-        act_settings = self.tray_menu.addAction("⚙ การตั้งค่า (Settings)")
+        act_settings = self.tray_menu.addAction("⚙️  การตั้งค่า (Settings)")
         act_settings.triggered.connect(self.open_settings)
 
-        act_donate = self.tray_menu.addAction("💚 สนับสนุน (Supporters)")
+        act_donate = self.tray_menu.addAction("💚  สนับสนุน (Supporters)")
         act_donate.triggered.connect(self.open_supporters_dialog)
 
         self.tray_menu.addSeparator()
-        act_exit = self.tray_menu.addAction("❌ ออกจากโปรแกรม (Exit)")
+        act_exit = self.tray_menu.addAction("❌  ออกจากโปรแกรม (Exit)")
         act_exit.triggered.connect(self.quit_application)
 
     def open_supporters_dialog(self):
