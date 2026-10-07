@@ -19,7 +19,7 @@ import time
 import webbrowser
 import urllib.parse
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QPoint, QUrl
@@ -1501,67 +1501,153 @@ class SettingsDialog(QDialog):
         sep_a2.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
         pa_layout.addWidget(sep_a2)
 
-        # Section 3: Antivirus & Windows Defender Instructions (Direct, flat, NO frames/boxes!)
+        # Section 3: 1-Click Windows Defender Exclusion (Option A with Button A2)
         sec_antivirus = QVBoxLayout()
-        sec_antivirus.setSpacing(8)
+        sec_antivirus.setSpacing(10)
 
-        av_title = QLabel("🛡️ วิธีป้องกันไม่ให้ Windows Defender / แอนตี้ไวรัสลบโปรแกรมทิ้งเมื่ออัปเดต:")
-        av_title.setStyleSheet("color: #f59e0b; font-size: 13.5px; font-weight: bold;")
-        sec_antivirus.addWidget(av_title)
+        card_av = QFrame()
+        card_av.setObjectName("defenderCard")
+        card_av.setStyleSheet(f"""
+            QFrame#defenderCard {{
+                background-color: {BG_PANEL};
+                border: 1px solid {BORDER_DEFAULT};
+                border-radius: 10px;
+            }}
+        """)
+        av_layout = QVBoxLayout(card_av)
+        av_layout.setSpacing(10)
+        av_layout.setContentsMargins(14, 14, 14, 14)
 
-        av_sub = QLabel("ต้องเพิ่ม Exception ใน Windows Defender (ทำครั้งเดียว แก้ได้ถาวร):")
-        av_sub.setStyleSheet("color: #e2e8f0; font-size: 13px; font-weight: 600;")
-        sec_antivirus.addWidget(av_sub)
+        av_title = QLabel("🛡️ ป้องกัน Windows Defender ลบไฟล์โปรแกรม/อัปเดต (1-Click Setup)")
+        av_title.setStyleSheet("color: #38bdf8; font-size: 14.5px; font-weight: bold;")
+        av_layout.addWidget(av_title)
 
-        steps_text = QLabel(
-            "1. กด <code>Windows + I</code> ดูที่แถบด้านซ้ายมือ ไปที่ <b>Privacy & security</b> แล้วเลือก <b>Windows Security</b><br>"
-            "2. คลิก <b>Virus & threat protection</b> จะเปิดหน้าใหม่ขึ้นมา<br>"
-            "3. ที่หัวข้อ <b>\"Virus & threat protection settings\"</b> กด <b>Manage settings</b><br>"
-            "4. เลื่อนลงไปข้างล่างสุดจะเจอหัวข้อ <b>Exclusions</b> คลิก <b>Add or remove exclusions</b><br>"
-            "5. คลิก <b>Add an exclusion</b> → เลือก <b>Folder</b><br>"
-            "6. จากนั้นนำทางไปที่เก็บโฟลเดอร์โปรแกรมที่มีไฟล์ <code>GameVault.exe</code><br>"
-            "7. คลิก <b>Select Folder</b>"
+        av_desc = QLabel("เพิ่มโฟลเดอร์ปัจจุบันและ GameVault.exe เข้าข้อยกเว้นของ Windows Defender อัตโนมัติในคลิกเดียว")
+        av_desc.setWordWrap(True)
+        av_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px;")
+        av_layout.addWidget(av_desc)
+
+        # Status Box
+        status_box = QFrame()
+        status_box.setStyleSheet("""
+            background-color: #1a2535;
+            border: 1px solid #2a3a4e;
+            border-radius: 8px;
+        """)
+        sb_layout = QVBoxLayout(status_box)
+        sb_layout.setSpacing(6)
+        sb_layout.setContentsMargins(10, 8, 10, 8)
+
+        sb_lbl = QLabel("สถานะข้อยกเว้น (Defender Exclusion Status):")
+        sb_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11.5px; font-weight: bold;")
+        sb_layout.addWidget(sb_lbl)
+
+        self.def_status_badge = QLabel()
+        self.def_status_badge.setStyleSheet("font-size: 12.5px; font-weight: bold; padding: 4px 10px; border-radius: 6px;")
+        sb_layout.addWidget(self.def_status_badge)
+        av_layout.addWidget(status_box)
+
+        # Target Path Box
+        folder_p, exe_n = self.get_app_exclusion_targets()
+        path_box = QFrame()
+        path_box.setStyleSheet("""
+            background-color: #121924;
+            border: 1px solid #233041;
+            border-radius: 6px;
+        """)
+        pb_layout = QVBoxLayout(path_box)
+        pb_layout.setSpacing(2)
+        pb_layout.setContentsMargins(10, 8, 10, 8)
+        pb_title = QLabel("📁 โฟลเดอร์ปลายทางปัจจุบัน:")
+        pb_title.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11.5px;")
+        pb_val = QLabel(f"{folder_p}  ({exe_n})")
+        pb_val.setStyleSheet("color: #7dd3fc; font-size: 12px; font-family: 'Consolas', 'Segoe UI', monospace; font-weight: 600;")
+        pb_layout.addWidget(pb_title)
+        pb_layout.addWidget(pb_val)
+        av_layout.addWidget(path_box)
+
+        # Primary 1-Click Action Button (Button A2: Steam Blue Gradient, Clean, Solid)
+        self.one_click_btn = QPushButton("⚡ เพิ่มข้อยกเว้นอัตโนมัติ (1-Click Setup)")
+        self.one_click_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.one_click_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0284c7, stop:1 #0369a1);
+                color: #ffffff;
+                border: 1px solid #38bdf8;
+                border-radius: 8px;
+                padding: 11px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #38bdf8, stop:1 #0284c7);
+                border: 1px solid #7dd3fc;
+            }
+            QPushButton:pressed {
+                background: #0369a1;
+            }
+        """)
+        self.one_click_btn.clicked.connect(self.apply_one_click_exclusion)
+        av_layout.addWidget(self.one_click_btn)
+
+        # UAC Notice Callout (With "เต็มจอ" as requested)
+        uac_callout = QFrame()
+        uac_callout.setStyleSheet("""
+            background-color: #112236;
+            border: 1px solid #2a4b6e;
+            border-radius: 8px;
+        """)
+        uc_layout = QVBoxLayout(uac_callout)
+        uc_layout.setSpacing(4)
+        uc_layout.setContentsMargins(10, 8, 10, 8)
+
+        uc_title = QLabel("คำแนะนำสำคัญ (เมื่อมีหน้าต่าง UAC เด้งขึ้นมาเต็มจอ):")
+        uc_title.setStyleSheet("color: #38bdf8; font-size: 12.5px; font-weight: bold;")
+        uc_desc = QLabel(
+            "👉 <b>กรุณากดปุ่ม \"Yes\"</b> เพื่ออนุญาตให้ระบบบันทึกค่าลงใน Windows Defender<br>"
+            "<span style='color: #94a3b8;'>* หากมีการย้ายโฟลเดอร์โปรแกรมในอนาคต สามารถกลับมากดปุ่มนี้อีกครั้งเพื่ออัปเดตปลายทาง</span>"
         )
-        steps_text.setTextFormat(Qt.TextFormat.RichText)
-        steps_text.setWordWrap(True)
-        steps_text.setStyleSheet("color: #cbd5e1; font-size: 12.5px; line-height: 1.5; padding-left: 8px;")
-        sec_antivirus.addWidget(steps_text)
+        uc_desc.setTextFormat(Qt.TextFormat.RichText)
+        uc_desc.setWordWrap(True)
+        uc_desc.setStyleSheet("color: #f1f5f9; font-size: 12px; line-height: 1.4;")
+        uc_layout.addWidget(uc_title)
+        uc_layout.addWidget(uc_desc)
+        av_layout.addWidget(uac_callout)
 
-        btn_row = QHBoxLayout()
-        open_sec_btn = QPushButton("🛡️ เปิดหน้า Windows Security ทันที (Open Settings)")
+        # Secondary Manual Link & Developer Note
+        manual_row = QHBoxLayout()
+        open_sec_btn = QPushButton("⚙️ เปิดหน้า Windows Security แบบแมนนวล (Manual Settings)")
         open_sec_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         open_sec_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {BG_CARD};
-                border: 1px solid {BORDER_DEFAULT};
-                color: #fbbf24;
-                border-radius: 6px;
-                padding: 6px 14px;
-                font-size: 12.5px;
-                font-weight: 600;
+                background-color: transparent;
+                border: none;
+                color: #64748b;
+                font-size: 12px;
+                text-align: left;
+                padding: 4px 0px;
             }}
             QPushButton:hover {{
-                background-color: #272115;
-                border-color: #d97706;
-                color: #ffffff;
+                color: {TEXT_PRIMARY};
+                text-decoration: underline;
             }}
         """)
         open_sec_btn.clicked.connect(lambda: subprocess.Popen(["cmd.exe", "/c", "start windowsdefender:"], shell=False))
-        btn_row.addWidget(open_sec_btn)
-        btn_row.addStretch()
-        sec_antivirus.addLayout(btn_row)
+        manual_row.addWidget(open_sec_btn)
+        manual_row.addStretch()
+        av_layout.addLayout(manual_row)
 
         note_box = QLabel(
-            "<i>หลังจากนี้ Windows Defender หรือ Antivirus จะไม่สแกนแล้วลบโปรแกรมอีกแล้ว เมื่อกดอัปเดตผ่านในโปรแกรม</i><br>"
             "<span style='color: #64748b; font-size: 11.5px;'>"
-            "โปรแกรมไม่ได้อันตรายอะไรครับ วินโดว์เขาพูดให้มันดูน่ากลัวๆ คนจะไม่กล้าใช้ "
-            "จะเรียกค่าไถ่โปรแกรม 400 ดอลล่า ต่อปีจากผู้พัฒนา เพื่อให้ไม่โดนดักว่าเป็นโปรแกรมอันตรายแหน่ะ เลยต้องใช้วิธีนี้เอา"
+            "<i>โปรแกรมปลอดภัย 100% ครับ การทำ Exclusion จะป้องกันไม่ให้แอนตี้ไวรัสลบไฟล์อัปเดตทิ้ง เนื่องจากโปรแกรมไม่ได้ซื้อใบรับรองราคาแพงจากไมโครซอฟท์</i>"
             "</span>"
         )
         note_box.setTextFormat(Qt.TextFormat.RichText)
         note_box.setWordWrap(True)
-        note_box.setStyleSheet("color: #94a3b8; font-size: 12px; line-height: 1.4;")
-        sec_antivirus.addWidget(note_box)
+        note_box.setStyleSheet("color: #64748b; font-size: 11.5px; line-height: 1.3;")
+        av_layout.addWidget(note_box)
+
+        sec_antivirus.addWidget(card_av)
 
         pa_layout.addLayout(sec_antivirus)
         pa_layout.addStretch()
@@ -1595,6 +1681,7 @@ class SettingsDialog(QDialog):
         btn_box.addWidget(save_btn)
 
         main_layout.addLayout(btn_box)
+        self.update_exclusion_status_ui()
 
     def _nav_btn_style(self, active: bool) -> str:
         if active:
@@ -1636,6 +1723,8 @@ class SettingsDialog(QDialog):
         self.pages.setCurrentIndex(idx)
         for i, btn in enumerate(self.nav_btns):
             btn.setStyleSheet(self._nav_btn_style(i == idx))
+        if idx == 3:
+            self.update_exclusion_status_ui()
 
     def refresh_folder_list(self):
         self.folder_list.clear()
@@ -1783,6 +1872,75 @@ class SettingsDialog(QDialog):
 
         QMessageBox.information(self, "Saved", "บันทึกการตั้งค่าเรียบร้อยแล้ว!")
         self.accept()
+
+    def get_app_exclusion_targets(self) -> Tuple[Path, str]:
+        """Dynamically detects the application directory and executable name."""
+        if getattr(sys, 'frozen', False):
+            exe_p = Path(sys.executable).resolve()
+            return exe_p.parent, exe_p.name
+        app_dir = Path(__file__).resolve().parent
+        return app_dir, "GameVault.exe"
+
+    def check_exclusion_status(self) -> str:
+        """Checks if the app was previously excluded or if it was relocated."""
+        saved = self.db.get_setting("last_defender_excluded_path", None) if self.db else None
+        if not saved:
+            return "not_configured"
+        cur_dir, _ = self.get_app_exclusion_targets()
+        if os.path.normpath(str(cur_dir)).lower() != os.path.normpath(str(saved)).lower():
+            return "relocated"
+        return "active"
+
+    def update_exclusion_status_ui(self):
+        """Updates the status badge reflecting current Windows Defender exclusion state."""
+        st = self.check_exclusion_status()
+        if st == "active":
+            self.def_status_badge.setText("🟢 ได้รับการยกเว้นแล้ว (Active Exclusion)")
+            self.def_status_badge.setStyleSheet(
+                "background-color: #143826; border: 1px solid #22c55e; color: #4ade80; "
+                "font-size: 12.5px; font-weight: bold; padding: 4px 10px; border-radius: 6px;"
+            )
+        elif st == "relocated":
+            self.def_status_badge.setText("⚠️ ตรวจพบโฟลเดอร์ถูกย้ายที่ตั้ง กรุณากดปุ่มด้านล่างเพื่ออัปเดต (Relocated)")
+            self.def_status_badge.setStyleSheet(
+                "background-color: #3c2d0f; border: 1px solid #eab308; color: #fde047; "
+                "font-size: 12.5px; font-weight: bold; padding: 4px 10px; border-radius: 6px;"
+            )
+        else:
+            self.def_status_badge.setText("⚪ ยังไม่เคยตั้งค่าข้อยกเว้นใน Windows Defender")
+            self.def_status_badge.setStyleSheet(
+                "background-color: #1e293b; border: 1px solid #475569; color: #94a3b8; "
+                "font-size: 12.5px; font-weight: bold; padding: 4px 10px; border-radius: 6px;"
+            )
+
+    def apply_one_click_exclusion(self):
+        """Executes elevated PowerShell command to add current directory & exe to Windows Defender exclusions."""
+        folder_p, exe_n = self.get_app_exclusion_targets()
+        dir_str = str(folder_p).replace("'", "''")
+        exe_str = exe_n.replace("'", "''")
+        ps_cmd = (
+            f"Add-MpPreference -ExclusionPath '{dir_str}'; "
+            f"Add-MpPreference -ExclusionProcess '{exe_str}'"
+        )
+        runner_cmd = (
+            f'Start-Process powershell -ArgumentList '
+            f'\'-NoProfile -ExecutionPolicy Bypass -Command "{ps_cmd}"\' '
+            f'-Verb RunAs'
+        )
+        try:
+            subprocess.Popen(["powershell", "-Command", runner_cmd], shell=False)
+            if self.db:
+                self.db.set_setting("last_defender_excluded_path", str(folder_p))
+            QMessageBox.information(
+                self,
+                "ขอสิทธิ์ Administrator (UAC)",
+                "ระบบกำลังส่งคำสั่งไปยัง Windows Defender\n\n"
+                "👉 เมื่อมีหน้าต่างขอสิทธิ์ (UAC) เด้งขึ้นมาเต็มจอ กรุณากด 'Yes' เพื่อยืนยันการตั้งค่าครับ!"
+            )
+            self.update_exclusion_status_ui()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"ไม่สามารถส่งคำสั่งได้: {e}")
+
 
 
 class OnlineCoverDialog(QDialog):
@@ -3613,6 +3771,24 @@ class MainWindow(QMainWindow):
         # Startup auto-check for application updates in background
         if self.db.get_setting("auto_check_updates", True):
             QtCore.QTimer.singleShot(3000, self.check_app_updates_silently)
+
+        # Check if the application directory was relocated since last exclusion setup
+        QtCore.QTimer.singleShot(2500, self.check_defender_relocation_on_startup)
+
+    def check_defender_relocation_on_startup(self):
+        """Notifies user if GameVault directory was moved after Windows Defender exclusion was configured."""
+        saved = self.db.get_setting("last_defender_excluded_path", None) if self.db else None
+        if not saved:
+            return
+        cur_dir = get_app_dir()
+        if os.path.normpath(str(cur_dir)).lower() != os.path.normpath(str(saved)).lower():
+            if hasattr(self, 'tray_icon') and self.tray_icon and self.tray_icon.isVisible():
+                self.tray_icon.showMessage(
+                    "GameVault - ตรวจพบการย้ายโฟลเดอร์",
+                    "โฟลเดอร์ของโปรแกรมมีการเปลี่ยนตำแหน่ง กรุณาเปิด Settings เพื่อกดอัปเดตข้อยกเว้นใน Windows Defender ครับ",
+                    QSystemTrayIcon.MessageIcon.Warning,
+                    6000
+                )
 
     def check_app_updates_silently(self):
         self.update_check_thread = SilentUpdateCheckThread(self)
