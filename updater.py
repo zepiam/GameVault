@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QTextEdit, QProgressBar, QMessageBox
 )
 
-CURRENT_VERSION = "1.1.0"
+CURRENT_VERSION = "1.2.0"
 REPO_OWNER = "zepiam"
 REPO_NAME = "GameVault"
 MANIFEST_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/latest/download/version.json"

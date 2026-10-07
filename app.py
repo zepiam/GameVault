@@ -23,7 +23,7 @@ from typing import Optional, List, Dict
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QPoint, QUrl
-from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest
+from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QLocalServer, QLocalSocket
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QAction, QCursor, QFontDatabase
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -584,8 +584,8 @@ class SettingsDialog(QDialog):
         self._initial_bg_path = self.db.get_setting("bg_image_path", "") if self.db else ""
         self._initial_opacity = self.db.get_setting("bg_opacity", 30) if self.db else 30
         self.setWindowTitle("Setting - GameVault")
-        self.resize(880, 680)
-        self.setMinimumSize(840, 620)
+        self.resize(920, 680)
+        self.setMinimumSize(860, 620)
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {BG_MAIN};
@@ -733,7 +733,7 @@ class SettingsDialog(QDialog):
 
         # Left Sidebar (Nav) - Clean, borderless sidebar
         nav_widget = QWidget()
-        nav_widget.setFixedWidth(220)
+        nav_widget.setFixedWidth(200)
         nav_layout = QVBoxLayout(nav_widget)
         nav_layout.setContentsMargins(0, 4, 12, 4)
         nav_layout.setSpacing(6)
@@ -825,6 +825,7 @@ class SettingsDialog(QDialog):
         self.auto_scan_cb.setChecked(auto_scan_val)
         opt0_box.addWidget(self.auto_scan_cb)
         opt0_sub = QLabel("ตรวจเช็คเฉพาะเกมใหม่ที่เพิ่มเข้ามาในโฟลเดอร์ที่บันทึกไว้ในเบื้องหลังอย่างเงียบๆ โดยไม่แสดงหน้าต่างกวนใจ")
+        opt0_sub.setWordWrap(True)
         opt0_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 29px;")
         opt0_box.addWidget(opt0_sub)
         pf_layout.addLayout(opt0_box)
@@ -844,6 +845,7 @@ class SettingsDialog(QDialog):
         sec1_title = QLabel("ทั่วไป (General)")
         sec1_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         sec1_desc = QLabel("กำหนดพฤติกรรมการเปิดโปรแกรมและการทำงานร่วมกับ Windows System Tray")
+        sec1_desc.setWordWrap(True)
         sec1_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
         sec1_head.addWidget(sec1_title)
         sec1_head.addWidget(sec1_desc)
@@ -857,6 +859,7 @@ class SettingsDialog(QDialog):
         self.run_startup_cb.setChecked(startup_val)
         item1_box.addWidget(self.run_startup_cb)
         item1_sub = QLabel("เปิดโปรแกรมขึ้นมาทำงานอัตโนมัติใน System Tray อย่างเงียบๆ ทันทีที่เข้าสู่ระบบ Windows")
+        item1_sub.setWordWrap(True)
         item1_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 29px;")
         item1_box.addWidget(item1_sub)
         pg_layout.addLayout(item1_box)
@@ -875,6 +878,7 @@ class SettingsDialog(QDialog):
         self.min_tray_close_cb.setChecked(min_tray_val)
         item2_box.addWidget(self.min_tray_close_cb)
         item2_sub = QLabel("เมื่อกดปุ่ม [X] ปิดหน้าต่าง โปรแกรมจะยังคงสแตนด์บายอยู่ในถาด Taskbar ขวาล่าง และคลิกขวาเพื่อเลือกเปิดเกมล่าสุดได้ทันที")
+        item2_sub.setWordWrap(True)
         item2_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 29px;")
         item2_box.addWidget(item2_sub)
         pg_layout.addLayout(item2_box)
@@ -893,6 +897,7 @@ class SettingsDialog(QDialog):
         self.show_badges_cb.setChecked(show_badges_val)
         item3_box.addWidget(self.show_badges_cb)
         item3_sub = QLabel("แสดงป้ายระบุค่ายของเกม (Steam, Epic, Ubisoft, GOG, EA, Android, Local, Software) ที่มุมการ์ด")
+        item3_sub.setWordWrap(True)
         item3_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 29px;")
         item3_box.addWidget(item3_sub)
         # Hairline divider
@@ -913,6 +918,7 @@ class SettingsDialog(QDialog):
             "เลือกโทนสีพื้นหลังหลักของโปรแกรม (ล็อคสีให้อัตโนมัติ ไม่เปลี่ยนตาม Windows) "
             "และสามารถเลือกรูปภาพเพื่อแสดงเป็นวอลเปเปอร์ด้านหลังคลังเกมได้"
         )
+        theme_sub.setWordWrap(True)
         theme_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px;")
         theme_sec_box.addWidget(theme_sub)
 
@@ -953,19 +959,22 @@ class SettingsDialog(QDialog):
         self.bg_path_edit.setPlaceholderText("ยังไม่ได้เลือกรูปภาพ (ใช้สีพื้นหลังล้วน)...")
         saved_bg_path = self.db.get_setting("bg_image_path", "") if self.db else ""
         self.bg_path_edit.setText(saved_bg_path)
-        img_path_row.addWidget(self.bg_path_edit)
+        self.bg_path_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        img_path_row.addWidget(self.bg_path_edit, 1)
 
-        browse_bg_btn = QPushButton("📁 เลือกรูปภาพ...")
+        browse_bg_btn = QPushButton("📁 เลือกรูป...")
         browse_bg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        browse_bg_btn.setStyleSheet(f"background-color: {BG_PANEL}; border: 1px solid {BORDER_DEFAULT}; color: {ACCENT_BLUE}; font-weight: bold; padding: 7px 14px;")
+        browse_bg_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        browse_bg_btn.setStyleSheet(f"background-color: {BG_PANEL}; border: 1px solid {BORDER_DEFAULT}; color: {ACCENT_BLUE}; font-weight: bold; padding: 7px 12px;")
         browse_bg_btn.clicked.connect(self.browse_bg_image)
-        img_path_row.addWidget(browse_bg_btn)
+        img_path_row.addWidget(browse_bg_btn, 0)
 
         clear_bg_btn = QPushButton("🗑 ลบรูป")
         clear_bg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_bg_btn.setStyleSheet("background-color: #3f1d24; border: 1px solid #7f1d1d; color: #fca5a5; padding: 7px 12px;")
+        clear_bg_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        clear_bg_btn.setStyleSheet("background-color: #3f1d24; border: 1px solid #7f1d1d; color: #fca5a5; padding: 7px 10px;")
         clear_bg_btn.clicked.connect(self.clear_bg_image)
-        img_path_row.addWidget(clear_bg_btn)
+        img_path_row.addWidget(clear_bg_btn, 0)
 
         theme_sec_box.addLayout(img_path_row)
 
@@ -992,6 +1001,7 @@ class SettingsDialog(QDialog):
         opacity_box.addWidget(self.opacity_slider)
 
         op_sub = QLabel("💡 ภาพจะซ้อนทับอยู่บนพื้นหลัง (อ้างอิงจากโหมดมืดหรือโหมดขาวที่เลือกไว้) ปรับค่าน้อยเพื่อให้มองเห็นปกเกมชัดเจน")
+        op_sub.setWordWrap(True)
         op_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
         opacity_box.addWidget(op_sub)
 
@@ -1003,6 +1013,7 @@ class SettingsDialog(QDialog):
         # Wrap in borderless scroll area for perfect responsiveness
         scroll_gen = QScrollArea()
         scroll_gen.setWidgetResizable(True)
+        scroll_gen.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_gen.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         scroll_gen.viewport().setStyleSheet("background: transparent;")
         scroll_gen.setWidget(page_general)
@@ -1020,6 +1031,7 @@ class SettingsDialog(QDialog):
         sec2_title = QLabel("ตั้งค่าคลัง (Library Setting)")
         sec2_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         sec2_desc = QLabel("ปรับแต่งการแสดงผลและพฤติกรรมของโปรแกรมทำงานที่คุณเพิ่มเข้ามาในคลัง")
+        sec2_desc.setWordWrap(True)
         sec2_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
         sec2_head.addWidget(sec2_title)
         sec2_head.addWidget(sec2_desc)
@@ -1035,6 +1047,7 @@ class SettingsDialog(QDialog):
         sw_disp_desc = QLabel(
             "การตั้งค่านี้มีผลเฉพาะรายการในแท็บ 'Software' เท่านั้น สำหรับคลังเกมปกติจะยังคงแสดงเป็นภาพปก Cover เสมอ"
         )
+        sw_disp_desc.setWordWrap(True)
         sw_disp_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px;")
         sw_disp_box.addWidget(sw_disp_desc)
 
@@ -1047,6 +1060,7 @@ class SettingsDialog(QDialog):
         self.sw_mode_group.addButton(self.radio_icon, 0)
         r1_box.addWidget(self.radio_icon)
         r1_sub = QLabel("ดึงไอคอนโปรแกรมความละเอียดสูง (.exe / .lnk) มาแสดงตรงๆ ปรับขยายขนาดตาม Size Slider ได้อย่างอิสระ")
+        r1_sub.setWordWrap(True)
         r1_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 27px;")
         r1_box.addWidget(r1_sub)
         sw_disp_box.addLayout(r1_box)
@@ -1058,6 +1072,7 @@ class SettingsDialog(QDialog):
         self.sw_mode_group.addButton(self.radio_cover, 1)
         r2_box.addWidget(self.radio_cover)
         r2_sub = QLabel("แสดงเป็นภาพโปสเตอร์อัตราส่วน 600×900 เหมือนเกม สามารถดาวน์โหลดหรืออัปโหลดรูปปกโปรแกรมเองได้")
+        r2_sub.setWordWrap(True)
         r2_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 27px;")
         r2_box.addWidget(r2_sub)
         sw_disp_box.addLayout(r2_box)
@@ -1089,6 +1104,7 @@ class SettingsDialog(QDialog):
         tray_sw_box.addWidget(self.tray_include_sw_cb)
 
         tray_sw_sub = QLabel("ค่าเริ่มต้น: แสดงเฉพาะ 5 เกมล่าสุดเท่านั้น (ติ๊กถูกหากต้องการให้แสดงโปรแกรมที่คุณใช้งานล่าสุดร่วมด้วย)")
+        tray_sw_sub.setWordWrap(True)
         tray_sw_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 29px;")
         tray_sw_box.addWidget(tray_sw_sub)
         psw_layout.addLayout(tray_sw_box)
@@ -1108,6 +1124,7 @@ class SettingsDialog(QDialog):
         sec3_title = QLabel("เชื่อมต่อ SteamGridDB (Integration)")
         sec3_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         sec3_desc = QLabel("SteamGridDB เป็นคลังภาพปกเกมแนวตั้ง (Vertical 600×900) และ Fan-art คุณภาพสูงที่ใหญ่ที่สุด")
+        sec3_desc.setWordWrap(True)
         sec3_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
         sec3_head.addWidget(sec3_title)
         sec3_head.addWidget(sec3_desc)
@@ -1200,6 +1217,7 @@ class SettingsDialog(QDialog):
         sec4_title = QLabel("อัพเดท (Update)")
         sec4_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         sec4_desc = QLabel("GameVault - Game & Software Library by MeN9CH")
+        sec4_desc.setWordWrap(True)
         sec4_desc.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px;")
         sec4_head.addWidget(sec4_title)
         sec4_head.addWidget(sec4_desc)
@@ -5074,12 +5092,24 @@ class MainWindow(QMainWindow):
                 self.show_and_activate()
 
     def show_and_activate(self):
-        self.showNormal()
-        self.activateWindow()
+        self.show()
+        if self.isMinimized():
+            self.showNormal()
         self.raise_()
+        self.activateWindow()
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            ctypes.windll.user32.ShowWindow(hwnd, 9)  # 9 = SW_RESTORE
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
 
     def quit_application(self):
         self._force_quit = True
+        if hasattr(self, '_local_server') and self._local_server:
+            self._local_server.close()
+            QLocalServer.removeServer("GameVault_SingleInstance_IPC")
         if hasattr(self, 'tray_icon'):
             self.tray_icon.hide()
         QApplication.quit()
@@ -5114,6 +5144,19 @@ def main():
     app.setApplicationName("GameVault")
     app.setQuitOnLastWindowClosed(False)
 
+    # Single-Instance Check via Named Pipe / QLocalSocket
+    SINGLE_INSTANCE_KEY = "GameVault_SingleInstance_IPC"
+    ipc_socket = QLocalSocket()
+    ipc_socket.connectToServer(SINGLE_INSTANCE_KEY)
+    if ipc_socket.waitForConnected(400):
+        # Instance already running! Send show signal and exit immediately
+        start_minimized = "--minimized" in sys.argv or "--tray" in sys.argv
+        if not start_minimized:
+            ipc_socket.write(b"SHOW\n")
+            ipc_socket.waitForBytesWritten(1000)
+        ipc_socket.disconnectFromServer()
+        sys.exit(0)
+
     # Load and register Noto Sans Thai application font
     font_path = get_asset_path(os.path.join("assets", "fonts", "NotoSansThai.ttf"))
     if os.path.exists(font_path):
@@ -5143,6 +5186,24 @@ def main():
         tmp_db.set_setting("run_on_startup", True)
 
     window = MainWindow()
+
+    # Start IPC server to accept wake-up signals from secondary instances
+    local_server = QLocalServer()
+    QLocalServer.removeServer(SINGLE_INSTANCE_KEY)
+    if local_server.listen(SINGLE_INSTANCE_KEY):
+        def handle_new_ipc_connection():
+            client_conn = local_server.nextPendingConnection()
+            if client_conn:
+                def on_ready_read():
+                    try:
+                        data = bytes(client_conn.readAll()).decode("utf-8", errors="ignore")
+                        if "SHOW" in data:
+                            window.show_and_activate()
+                    finally:
+                        client_conn.disconnectFromServer()
+                client_conn.readyRead.connect(on_ready_read)
+        local_server.newConnection.connect(handle_new_ipc_connection)
+        window._local_server = local_server
 
     start_minimized = "--minimized" in sys.argv or "--tray" in sys.argv
     if not start_minimized:
