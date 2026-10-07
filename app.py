@@ -1064,6 +1064,51 @@ class SettingsDialog(QDialog):
         sep1_2.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
         pg_layout.addWidget(sep1_2)
 
+        # Item 2.5: Tray Icon Theme Style
+        tray_theme_box = QVBoxLayout()
+        tray_theme_box.setSpacing(4)
+        tray_theme_lbl = QLabel("🎮 สีไอคอน System Tray (Tray Icon Theme):")
+        tray_theme_lbl.setStyleSheet("font-size: 13.5px; font-weight: bold; color: #f8fafc;")
+        tray_theme_box.addWidget(tray_theme_lbl)
+
+        tray_theme_sub = QLabel("เลือกโทนสีของไอคอนจอยเกมในถาดงาน Windows (ป้องกันไอคอนกลืนไปกับพื้นหลัง Taskbar)")
+        tray_theme_sub.setWordWrap(True)
+        tray_theme_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px;")
+        tray_theme_box.addWidget(tray_theme_sub)
+
+        self.tray_theme_group = QButtonGroup(self)
+        tray_theme_row = QHBoxLayout()
+        tray_theme_row.setSpacing(18)
+
+        self.radio_tray_auto = QRadioButton("🔄 อัตโนมัติ (ตาม Windows)")
+        self.radio_tray_white = QRadioButton("⚪ บอดี้ขาว (สำหรับจอมืด)")
+        self.radio_tray_dark = QRadioButton("⚫ บอดี้ดำ (สำหรับจอขาว)")
+
+        self.tray_theme_group.addButton(self.radio_tray_auto, 0)
+        self.tray_theme_group.addButton(self.radio_tray_white, 1)
+        self.tray_theme_group.addButton(self.radio_tray_dark, 2)
+
+        saved_tray_theme = self.db.get_setting("tray_icon_theme", "auto") if self.db else "auto"
+        if saved_tray_theme == "white":
+            self.radio_tray_white.setChecked(True)
+        elif saved_tray_theme == "dark":
+            self.radio_tray_dark.setChecked(True)
+        else:
+            self.radio_tray_auto.setChecked(True)
+
+        tray_theme_row.addWidget(self.radio_tray_auto)
+        tray_theme_row.addWidget(self.radio_tray_white)
+        tray_theme_row.addWidget(self.radio_tray_dark)
+        tray_theme_row.addStretch()
+        tray_theme_box.addLayout(tray_theme_row)
+        pg_layout.addLayout(tray_theme_box)
+
+        # Hairline divider
+        sep1_2b = QFrame()
+        sep1_2b.setFrameShape(QFrame.Shape.HLine)
+        sep1_2b.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
+        pg_layout.addWidget(sep1_2b)
+
         # Item 3: Platform Badges
         item3_box = QVBoxLayout()
         item3_box.setSpacing(2)
@@ -1725,6 +1770,16 @@ class SettingsDialog(QDialog):
             self.db.set_setting("theme_mode", theme_mode)
             self.db.set_setting("bg_image_path", self.bg_path_edit.text().strip())
             self.db.set_setting("bg_opacity", self.opacity_slider.value())
+
+            # Save Tray Icon Theme
+            tray_theme = "auto"
+            if self.radio_tray_white.isChecked():
+                tray_theme = "white"
+            elif self.radio_tray_dark.isChecked():
+                tray_theme = "dark"
+            self.db.set_setting("tray_icon_theme", tray_theme)
+            if self.main_window:
+                self.main_window.update_tray_icon()
 
         QMessageBox.information(self, "Saved", "บันทึกการตั้งค่าเรียบร้อยแล้ว!")
         self.accept()
@@ -5179,15 +5234,45 @@ class MainWindow(QMainWindow):
                 self.db.remove_game(game["id"])
                 self.load_games_to_ui()
 
+    def get_appropriate_tray_icon_path(self) -> str:
+        """Determines whether to show white or dark tray icon based on settings and Windows taskbar theme."""
+        setting_val = self.db.get_setting("tray_icon_theme", "auto") if self.db else "auto"
+        if setting_val == "white":
+            icon_p = get_asset_path(os.path.join("assets", "tray_icon_dark.png"))
+        elif setting_val == "dark":
+            icon_p = get_asset_path(os.path.join("assets", "tray_icon_light.png"))
+        else:
+            is_dark_taskbar = True
+            try:
+                key = winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+                )
+                val, _ = winreg.QueryValueEx(key, "SystemUsesLightTheme")
+                winreg.CloseKey(key)
+                is_dark_taskbar = (val == 0)
+            except Exception:
+                is_dark_taskbar = True
+            target = "tray_icon_dark.png" if is_dark_taskbar else "tray_icon_light.png"
+            icon_p = get_asset_path(os.path.join("assets", target))
+        if not os.path.exists(icon_p):
+            icon_p = get_asset_path("icon.png")
+        return icon_p
+
+    def update_tray_icon(self):
+        """Updates the system tray icon pixmap dynamically according to current theme/settings."""
+        if hasattr(self, 'tray_icon') and self.tray_icon:
+            p = self.get_appropriate_tray_icon_path()
+            if os.path.exists(p):
+                self.tray_icon.setIcon(QIcon(p))
+
     def setup_system_tray(self):
         """Initializes Windows System Tray icon with Steam-style Jump List menu."""
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
 
         self.tray_icon = QSystemTrayIcon(self)
-        icon_path = get_asset_path("icon.png")
-        if os.path.exists(icon_path):
-            self.tray_icon.setIcon(QIcon(icon_path))
+        self.update_tray_icon()
         self.tray_icon.setToolTip("GameVault - Game & Software Library by MeN9CH")
 
         self.tray_menu = QMenu()
@@ -5222,6 +5307,7 @@ class MainWindow(QMainWindow):
 
     def populate_tray_menu(self):
         """Dynamically populates the System Tray context menu with recent games/software and controls."""
+        self.update_tray_icon()
         self.tray_menu.clear()
 
         include_software = self.db.get_setting("tray_include_software", False) if self.db else False
