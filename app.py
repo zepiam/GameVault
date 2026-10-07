@@ -869,10 +869,115 @@ class SettingsDialog(QDialog):
         item3_sub = QLabel("แสดงป้ายระบุค่ายของเกม (Steam, Epic, Ubisoft, GOG, EA, Android, Local, Software) ที่มุมการ์ด")
         item3_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 29px;")
         item3_box.addWidget(item3_sub)
-        pg_layout.addLayout(item3_box)
+        # Hairline divider
+        sep1_3 = QFrame()
+        sep1_3.setFrameShape(QFrame.Shape.HLine)
+        sep1_3.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
+        pg_layout.addWidget(sep1_3)
+
+        # Item 4: ธีมและภาพพื้นหลัง (Theme & Custom Background)
+        theme_sec_box = QVBoxLayout()
+        theme_sec_box.setSpacing(10)
+
+        theme_head = QLabel("🎨 ธีมและภาพพื้นหลัง (Theme & Background):")
+        theme_head.setStyleSheet("font-size: 14px; font-weight: bold; color: #f8fafc;")
+        theme_sec_box.addWidget(theme_head)
+
+        theme_sub = QLabel(
+            "เลือกโทนสีพื้นหลังหลักของโปรแกรม (ล็อคสีให้อัตโนมัติ ไม่เปลี่ยนตาม Windows) "
+            "และสามารถเลือกรูปภาพเพื่อแสดงเป็นวอลเปเปอร์ด้านหลังคลังเกมได้"
+        )
+        theme_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px;")
+        theme_sec_box.addWidget(theme_sub)
+
+        # Theme Mode Selector (Radio buttons)
+        self.theme_group = QButtonGroup(self)
+        theme_row = QHBoxLayout()
+        theme_row.setSpacing(24)
+
+        self.radio_dark = QRadioButton("🌙 โหมดมืด (Dark Mode) [แนะนำ]")
+        self.radio_light = QRadioButton("☀️ โหมดขาว (Light Mode)")
+        self.theme_group.addButton(self.radio_dark, 0)
+        self.theme_group.addButton(self.radio_light, 1)
+
+        saved_theme = self.db.get_setting("theme_mode", "dark") if self.db else "dark"
+        if saved_theme == "light":
+            self.radio_light.setChecked(True)
+        else:
+            self.radio_dark.setChecked(True)
+
+        theme_row.addWidget(self.radio_dark)
+        theme_row.addWidget(self.radio_light)
+        theme_row.addStretch()
+        theme_sec_box.addLayout(theme_row)
+
+        # Custom Background Image Row
+        bg_img_lbl = QLabel("🖼 ภาพพื้นหลังวอลเปเปอร์ (Custom Wallpaper):")
+        bg_img_lbl.setStyleSheet("font-size: 13.5px; font-weight: bold; color: #f8fafc; margin-top: 4px;")
+        theme_sec_box.addWidget(bg_img_lbl)
+
+        img_path_row = QHBoxLayout()
+        img_path_row.setSpacing(8)
+
+        self.bg_path_edit = QLineEdit()
+        self.bg_path_edit.setReadOnly(True)
+        self.bg_path_edit.setPlaceholderText("ยังไม่ได้เลือกรูปภาพ (ใช้สีพื้นหลังล้วน)...")
+        saved_bg_path = self.db.get_setting("bg_image_path", "") if self.db else ""
+        self.bg_path_edit.setText(saved_bg_path)
+        img_path_row.addWidget(self.bg_path_edit)
+
+        browse_bg_btn = QPushButton("📁 เลือกรูปภาพ...")
+        browse_bg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse_bg_btn.setStyleSheet(f"background-color: {BG_PANEL}; border: 1px solid {BORDER_DEFAULT}; color: {ACCENT_BLUE}; font-weight: bold; padding: 7px 14px;")
+        browse_bg_btn.clicked.connect(self.browse_bg_image)
+        img_path_row.addWidget(browse_bg_btn)
+
+        clear_bg_btn = QPushButton("🗑 ลบรูป")
+        clear_bg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_bg_btn.setStyleSheet("background-color: #3f1d24; border: 1px solid #7f1d1d; color: #fca5a5; padding: 7px 12px;")
+        clear_bg_btn.clicked.connect(self.clear_bg_image)
+        img_path_row.addWidget(clear_bg_btn)
+
+        theme_sec_box.addLayout(img_path_row)
+
+        # Opacity Slider Row
+        opacity_box = QVBoxLayout()
+        opacity_box.setSpacing(4)
+
+        op_header = QHBoxLayout()
+        op_lbl = QLabel("ระดับความโปร่งใสของภาพ (Wallpaper Opacity):")
+        op_lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; color: #cbd5e1;")
+        op_header.addWidget(op_lbl)
+        op_header.addStretch()
+
+        saved_opacity = self.db.get_setting("bg_opacity", 30) if self.db else 30
+        self.opacity_val_lbl = QLabel(f"{saved_opacity}%")
+        self.opacity_val_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {ACCENT_BLUE};")
+        op_header.addWidget(self.opacity_val_lbl)
+        opacity_box.addLayout(op_header)
+
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(5, 100)
+        self.opacity_slider.setValue(saved_opacity)
+        self.opacity_slider.valueChanged.connect(lambda v: self.opacity_val_lbl.setText(f"{v}%"))
+        opacity_box.addWidget(self.opacity_slider)
+
+        op_sub = QLabel("💡 ภาพจะซ้อนทับอยู่บนพื้นหลัง (อ้างอิงจากโหมดมืดหรือโหมดขาวที่เลือกไว้) ปรับค่าน้อยเพื่อให้มองเห็นปกเกมชัดเจน")
+        op_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
+        opacity_box.addWidget(op_sub)
+
+        theme_sec_box.addLayout(opacity_box)
+        pg_layout.addLayout(theme_sec_box)
 
         pg_layout.addStretch()
-        self.pages.addWidget(page_general)
+
+        # Wrap in borderless scroll area for perfect responsiveness
+        scroll_gen = QScrollArea()
+        scroll_gen.setWidgetResizable(True)
+        scroll_gen.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        scroll_gen.viewport().setStyleSheet("background: transparent;")
+        scroll_gen.setWidget(page_general)
+        self.pages.addWidget(scroll_gen)
 
         # ==================== Page 2: Software Settings & Icon Mode ====================
         page_software = QWidget()
@@ -1335,6 +1440,19 @@ class SettingsDialog(QDialog):
         finally:
             self.check_update_btn.setEnabled(True)
 
+    def browse_bg_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "เลือกรูปภาพพื้นหลัง (Select Background Image)",
+            "",
+            "Image Files (*.png *.jpg *.jpeg *.webp *.bmp)"
+        )
+        if file_path:
+            self.bg_path_edit.setText(file_path)
+
+    def clear_bg_image(self):
+        self.bg_path_edit.clear()
+
     def save_settings(self):
         key = self.key_input.text().strip()
         run_startup = self.run_startup_cb.isChecked()
@@ -1351,6 +1469,13 @@ class SettingsDialog(QDialog):
             self.db.set_setting("software_display_mode", sw_mode)
             self.db.set_setting("tray_include_software", self.tray_include_sw_cb.isChecked())
             self.db.set_setting("auto_check_updates", self.auto_update_cb.isChecked())
+
+            # Save Theme & Custom Wallpaper Settings
+            theme_mode = "light" if self.radio_light.isChecked() else "dark"
+            self.db.set_setting("theme_mode", theme_mode)
+            self.db.set_setting("bg_image_path", self.bg_path_edit.text().strip())
+            self.db.set_setting("bg_opacity", self.opacity_slider.value())
+
         QMessageBox.information(self, "Saved", "บันทึกการตั้งค่าเรียบร้อยแล้ว!")
         self.accept()
 
@@ -2766,10 +2891,30 @@ class GameCard(QFrame):
         self.title_label.setWordWrap(False)
         self.main_layout.addWidget(self.title_label)
 
-        self.apply_border_style()
+        self.theme_colors = None
+        self.apply_theme_colors()
         self.update_badges()
         self.set_card_size(card_width)
         self.hide()
+
+    def apply_theme_colors(self, colors: dict = None):
+        if not colors:
+            theme_mode = self.db.get_setting("theme_mode", "dark") if self.db else "dark"
+            colors = {
+                "text_primary": "#0f172a" if theme_mode == "light" else "#f8fafc",
+                "bg_card": "#ffffff" if theme_mode == "light" else BG_CARD,
+                "bg_card_hover": "#f8fafc" if theme_mode == "light" else BG_CARD_HOVER,
+                "border_default": "#cbd5e1" if theme_mode == "light" else BORDER_DEFAULT,
+                "border_hover": "#94a3b8" if theme_mode == "light" else BORDER_HOVER
+            }
+        self.theme_colors = colors
+        self.title_label.setStyleSheet(f"""
+            color: {colors['text_primary']};
+            font-size: 13px;
+            font-weight: bold;
+            padding: 0 4px;
+        """)
+        self.apply_border_style()
 
     def update_badges(self):
         show_source = True
@@ -2799,16 +2944,25 @@ class GameCard(QFrame):
         self.fav_badge.setVisible(is_fav)
 
     def apply_border_style(self):
+        colors = getattr(self, 'theme_colors', None)
+        if not colors:
+            theme_mode = self.db.get_setting("theme_mode", "dark") if self.db else "dark"
+            colors = {
+                "bg_card": "#ffffff" if theme_mode == "light" else BG_CARD,
+                "bg_card_hover": "#f8fafc" if theme_mode == "light" else BG_CARD_HOVER,
+                "border_default": "#cbd5e1" if theme_mode == "light" else BORDER_DEFAULT,
+                "border_hover": "#94a3b8" if theme_mode == "light" else BORDER_HOVER
+            }
         color = self.game.get("border_color")
         if color:
             self.setStyleSheet(f"""
                 QFrame#GameCard {{
-                    background-color: {BG_CARD};
+                    background-color: {colors['bg_card']};
                     border: 3px solid {color};
                     border-radius: 10px;
                 }}
                 QFrame#GameCard:hover {{
-                    background-color: {BG_CARD_HOVER};
+                    background-color: {colors['bg_card_hover']};
                     border: 3px solid {color};
                 }}
             """)
@@ -2824,20 +2978,20 @@ class GameCard(QFrame):
                         border-radius: 10px;
                     }}
                     QFrame#GameCard:hover {{
-                        background-color: {BG_CARD_HOVER};
+                        background-color: {colors['bg_card_hover']};
                         border: 2px solid {glow};
                     }}
                 """)
             else:
                 self.setStyleSheet(f"""
                     QFrame#GameCard {{
-                        background-color: {BG_CARD};
-                        border: 2px solid {BORDER_DEFAULT};
+                        background-color: {colors['bg_card']};
+                        border: 2px solid {colors['border_default']};
                         border-radius: 10px;
                     }}
                     QFrame#GameCard:hover {{
-                        background-color: {BG_CARD_HOVER};
-                        border: 2px solid {BORDER_HOVER};
+                        background-color: {colors['bg_card_hover']};
+                        border: 2px solid {colors['border_hover']};
                     }}
                 """)
 
@@ -3050,6 +3204,61 @@ class SilentUpdateCheckThread(QThread):
             print(f"[SilentUpdateCheckThread] Error: {e}")
 
 
+class BackgroundWidget(QWidget):
+    """
+    Central widget that renders the application background.
+    Supports:
+    - Base theme: 'dark' (#0e141b) or 'light' (#f1f5f9)
+    - Custom background image scaled to cover the window
+    - Adjustable opacity for the image over the base theme color
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.theme_mode = "dark"
+        self.bg_image_path = ""
+        self.bg_opacity = 0.3
+        self._pixmap = None
+        self._cached_path = None
+
+    def update_settings(self, theme_mode: str, bg_image_path: str, bg_opacity: float):
+        self.theme_mode = theme_mode
+        self.bg_image_path = bg_image_path
+        self.bg_opacity = max(0.0, min(1.0, bg_opacity))
+
+        if bg_image_path != self._cached_path:
+            self._cached_path = bg_image_path
+            if bg_image_path and os.path.exists(bg_image_path):
+                self._pixmap = QPixmap(bg_image_path)
+            else:
+                self._pixmap = None
+
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        # 1. Base color (Dark or Light)
+        if self.theme_mode == "light":
+            base_color = QColor("#f1f5f9")
+        else:
+            base_color = QColor("#0e141b")
+
+        painter.fillRect(self.rect(), base_color)
+
+        # 2. Custom background image if present
+        if self._pixmap and not self._pixmap.isNull() and self.bg_opacity > 0:
+            painter.setOpacity(self.bg_opacity)
+            scaled = self._pixmap.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            x = (self.width() - scaled.width()) // 2
+            y = (self.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -3087,6 +3296,7 @@ class MainWindow(QMainWindow):
         self.search_timer.timeout.connect(lambda: self.rearrange_grid(update_tabs=False))
 
         self.setup_ui()
+        self.apply_theme_settings()
         self.setup_system_tray()
         self.load_games_to_ui()
         self.check_missing_covers()
@@ -3134,8 +3344,8 @@ class MainWindow(QMainWindow):
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         """)
 
-        central_widget = QWidget()
-        main_layout = QVBoxLayout(central_widget)
+        self.central_bg_widget = BackgroundWidget()
+        main_layout = QVBoxLayout(self.central_bg_widget)
         main_layout.setContentsMargins(16, 14, 16, 14)
         main_layout.setSpacing(10)
 
@@ -3147,9 +3357,9 @@ class MainWindow(QMainWindow):
         header.setSpacing(8)
 
         # Drive Selector Dropdown
-        drive_lbl = QLabel("Drive:")
-        drive_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; font-weight: 600;")
-        header.addWidget(drive_lbl)
+        self.drive_lbl = QLabel("Drive:")
+        self.drive_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; font-weight: 600;")
+        header.addWidget(self.drive_lbl)
 
         self.drive_combo = QComboBox()
         self.drive_combo.setStyleSheet(f"""
@@ -3272,10 +3482,10 @@ class MainWindow(QMainWindow):
         header.addWidget(self.add_btn)
 
         # Settings & API Key Button
-        settings_btn = QPushButton("⚙ Settings")
-        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        settings_btn.setToolTip("ตั้งค่าโปรแกรม, โฟลเดอร์คลังเกม และ SteamGridDB API Key")
-        settings_btn.setStyleSheet(f"""
+        self.settings_btn = QPushButton("⚙ Settings")
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.setToolTip("ตั้งค่าโปรแกรม, โฟลเดอร์คลังเกม และ SteamGridDB API Key")
+        self.settings_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {BG_PANEL};
                 color: {TEXT_PRIMARY};
@@ -3287,8 +3497,8 @@ class MainWindow(QMainWindow):
             }}
             QPushButton:hover {{ background-color: {BG_CARD}; border-color: {BORDER_HOVER}; color: {ACCENT_BLUE}; }}
         """)
-        settings_btn.clicked.connect(self.open_settings)
-        header.addWidget(settings_btn)
+        self.settings_btn.clicked.connect(self.open_settings)
+        header.addWidget(self.settings_btn)
 
         # Supporters / Donate Button
         self.donate_btn = QPushButton("💚 สนับสนุน")
@@ -3315,9 +3525,9 @@ class MainWindow(QMainWindow):
         header.addStretch()
 
         # Thumbnail Size Zoom Slider
-        zoom_lbl = QLabel("Size:")
-        zoom_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; font-weight: 600;")
-        header.addWidget(zoom_lbl)
+        self.zoom_lbl = QLabel("Size:")
+        self.zoom_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; font-weight: 600;")
+        header.addWidget(self.zoom_lbl)
 
         self.size_slider = QSlider(Qt.Orientation.Horizontal)
         self.size_slider.setRange(120, 260)
@@ -3421,7 +3631,8 @@ class MainWindow(QMainWindow):
         tab_row.setSpacing(8)
 
         tab_icon = QLabel("📁 Library:")
-        tab_icon.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; font-weight: bold;")
+        self.tab_icon = tab_icon
+        self.tab_icon.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; font-weight: bold;")
         tab_row.addWidget(tab_icon)
 
         self.tab_all_btn = QPushButton("🎮 All Games")
@@ -3508,9 +3719,17 @@ class MainWindow(QMainWindow):
         # Main Library Scroll Area with Grid
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.scroll_area.setAutoFillBackground(False)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea { border: none; background: transparent; }
+            QScrollArea > QWidget > QWidget { background: transparent; }
+        """)
+        self.scroll_area.viewport().setAutoFillBackground(False)
+        self.scroll_area.viewport().setStyleSheet("background: transparent;")
 
         self.grid_container = QWidget()
+        self.grid_container.setAutoFillBackground(False)
+        self.grid_container.setStyleSheet("background: transparent;")
         self.grid_layout = QGridLayout(self.grid_container)
         self.grid_layout.setSpacing(14)
         self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
@@ -3521,6 +3740,7 @@ class MainWindow(QMainWindow):
 
         # Empty State Centered Widget
         self.empty_widget = QWidget()
+        self.empty_widget.setStyleSheet("background: transparent;")
         empty_box = QVBoxLayout(self.empty_widget)
         empty_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_box.setSpacing(12)
@@ -3545,14 +3765,193 @@ class MainWindow(QMainWindow):
         self.empty_widget.setVisible(False)
         main_layout.addWidget(self.empty_widget, stretch=1)
 
-        self.setCentralWidget(central_widget)
+        self.setCentralWidget(self.central_bg_widget)
+
+    def get_theme_colors(self) -> dict:
+        theme_mode = self.db.get_setting("theme_mode", "dark") if self.db else "dark"
+        if theme_mode == "light":
+            return {
+                "theme_mode": "light",
+                "bg_main": "#f1f5f9",
+                "bg_panel": "#ffffff",
+                "bg_card": "#ffffff",
+                "bg_card_hover": "#f8fafc",
+                "text_primary": "#0f172a",
+                "text_muted": "#64748b",
+                "border_default": "#cbd5e1",
+                "border_hover": "#94a3b8",
+            }
+        else:
+            return {
+                "theme_mode": "dark",
+                "bg_main": "#0e141b",
+                "bg_panel": "#151f28",
+                "bg_card": "#151f28",
+                "bg_card_hover": "#1e293b",
+                "text_primary": "#f8fafc",
+                "text_muted": "#94a3b8",
+                "border_default": "#334155",
+                "border_hover": "#475569",
+            }
+
+    def apply_theme_settings(self):
+        theme_mode = self.db.get_setting("theme_mode", "dark") if self.db else "dark"
+        bg_image = self.db.get_setting("bg_image_path", "") if self.db else ""
+        bg_opacity = (self.db.get_setting("bg_opacity", 30) if self.db else 30) / 100.0
+
+        if hasattr(self, 'central_bg_widget'):
+            self.central_bg_widget.update_settings(theme_mode, bg_image, bg_opacity)
+
+        colors = self.get_theme_colors()
+
+        # Update QMainWindow scrollbars and main background
+        self.setStyleSheet(f"""
+            QMainWindow {{ background-color: {colors['bg_main']}; }}
+            QWidget {{ font-family: 'Noto Sans Thai', 'Segoe UI Variable', 'Segoe UI', 'Leelawadee UI', sans-serif; }}
+            QScrollBar:vertical {{
+                background: {colors['bg_main']};
+                width: 10px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {colors['border_default']};
+                min-height: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical:hover {{ background: {ACCENT_BLUE}; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        """)
+
+        if hasattr(self, 'drive_lbl'):
+            self.drive_lbl.setStyleSheet(f"color: {colors['text_muted']}; font-size: 12px; font-weight: 600;")
+        if hasattr(self, 'zoom_lbl'):
+            self.zoom_lbl.setStyleSheet(f"color: {colors['text_muted']}; font-size: 12px; font-weight: 600;")
+        if hasattr(self, 'tab_icon'):
+            self.tab_icon.setStyleSheet(f"color: {colors['text_muted']}; font-size: 13px; font-weight: bold;")
+
+        if hasattr(self, 'drive_combo'):
+            self.drive_combo.setStyleSheet(f"""
+                QComboBox {{
+                    background-color: {colors['bg_panel']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border_default']};
+                    border-radius: 6px;
+                    padding: 5px 8px;
+                    font-weight: bold;
+                    min-width: 60px;
+                    font-size: 12px;
+                }}
+                QComboBox::drop-down {{ border: none; }}
+                QComboBox QAbstractItemView {{
+                    background-color: {colors['bg_panel']};
+                    color: {colors['text_primary']};
+                    selection-background-color: {colors['bg_card_hover']};
+                }}
+            """)
+
+        if hasattr(self, 'scan_folder_btn'):
+            self.scan_folder_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['bg_panel']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border_default']};
+                    border-radius: 6px;
+                    padding: 6px 10px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }}
+                QPushButton:hover {{ background-color: {colors['bg_card_hover']}; border-color: {colors['border_hover']}; }}
+            """)
+
+        if hasattr(self, 'add_btn'):
+            self.add_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['bg_panel']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border_default']};
+                    border-radius: 6px;
+                    padding: 6px 12px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }}
+                QPushButton:hover {{ background-color: {colors['bg_card_hover']}; border-color: {colors['border_hover']}; }}
+            """)
+
+        if hasattr(self, 'settings_btn'):
+            self.settings_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['bg_panel']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border_default']};
+                    border-radius: 6px;
+                    padding: 6px 10px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }}
+                QPushButton:hover {{ background-color: {colors['bg_card_hover']}; border-color: {colors['border_hover']}; color: {ACCENT_BLUE}; }}
+            """)
+
+        if hasattr(self, 'search_input'):
+            self.search_input.setStyleSheet(f"""
+                QLineEdit {{
+                    background-color: {colors['bg_panel']};
+                    color: {colors['text_primary']};
+                    border: 1px solid {colors['border_default']};
+                    border-radius: 6px;
+                    padding: 6px 10px;
+                    font-size: 12px;
+                }}
+                QLineEdit:focus {{ border-color: {ACCENT_BLUE}; }}
+            """)
+
+        if hasattr(self, 'count_badge'):
+            self.count_badge.setStyleSheet(f"""
+                background-color: {colors['bg_panel']};
+                color: {colors['text_muted']};
+                border-radius: 6px;
+                padding: 5px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            """)
+
+        if hasattr(self, 'refresh_lib_btn'):
+            self.refresh_lib_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors['bg_panel']};
+                    color: {colors['text_muted']};
+                    border: 1px solid {colors['border_default']};
+                    border-radius: 6px;
+                    font-size: 11px;
+                    padding: 0px;
+                }}
+                QPushButton:hover {{
+                    background-color: {colors['bg_card_hover']};
+                    border-color: {ACCENT_BLUE};
+                    color: {ACCENT_BLUE};
+                }}
+                QPushButton:disabled {{
+                    color: #475569;
+                    border-color: {colors['border_default']};
+                    background-color: {colors['bg_panel']};
+                }}
+            """)
+
+        if hasattr(self, 'empty_title') and hasattr(self, 'empty_desc'):
+            self.empty_title.setStyleSheet(f"color: {colors['text_primary']}; font-size: 20px; font-weight: bold;")
+            self.empty_desc.setStyleSheet(f"color: {colors['text_muted']}; font-size: 14px; line-height: 1.5;")
+
+        self.update_tab_styles()
+        for card in self.card_widgets.values():
+            card.apply_theme_colors(colors)
 
     def open_settings(self):
         dlg = SettingsDialog(self.db, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.apply_theme_settings()
             for card in self.card_widgets.values():
                 card.update_badges()
                 card.refresh_cover()
+            self.rearrange_grid()
             self.rearrange_grid()
 
     def on_card_size_changed(self, val: int):
