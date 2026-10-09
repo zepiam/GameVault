@@ -2731,7 +2731,10 @@ class GameDetailDialog(QDialog):
         self.update_poster_border()
         left_col.addWidget(self.poster_label)
 
-        play_btn = QPushButton("▶ PLAY GAME")
+        is_sw = bool(self.game.get("is_software") or self.game.get("item_type") == "software" or get_game_platform(self.game) == "software")
+        self.is_sw = is_sw
+
+        play_btn = QPushButton("▶ START PROGRAM" if is_sw else "▶ PLAY GAME")
         play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         play_btn.setFixedHeight(44)
         play_btn.setStyleSheet(f"""
@@ -2763,7 +2766,7 @@ class GameDetailDialog(QDialog):
         border_color_btn.clicked.connect(self.choose_border_color)
         left_col.addWidget(border_color_btn)
 
-        open_folder_btn = QPushButton("📂 Open Game Folder")
+        open_folder_btn = QPushButton("📂 Open Program Folder" if is_sw else "📂 Open Game Folder")
         open_folder_btn.setStyleSheet(f"background-color: {BG_PANEL}; border: 1px solid {BORDER_DEFAULT}; color: {TEXT_PRIMARY};")
         open_folder_btn.clicked.connect(self.open_folder)
         left_col.addWidget(open_folder_btn)
@@ -2918,7 +2921,7 @@ class GameDetailDialog(QDialog):
         right_lay.addWidget(meta_frame)
 
         # Description Section
-        desc_hdr = QLabel("About The Game")
+        desc_hdr = QLabel("About The Program" if getattr(self, 'is_sw', False) else "About The Game")
         desc_hdr.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {TEXT_PRIMARY};")
         right_lay.addWidget(desc_hdr)
 
@@ -2964,7 +2967,8 @@ class GameDetailDialog(QDialog):
                 return
 
         self.poster_label.setPixmap(QPixmap())
-        self.poster_label.setText(f"🎮\n{self.game['name']}")
+        is_sw = getattr(self, 'is_sw', False)
+        self.poster_label.setText(f"💻\n{self.game['name']}" if is_sw else f"🎮\n{self.game['name']}")
 
     def update_description_display(self):
         desc = self.game.get("description") or self.game.get("short_description")
@@ -2973,9 +2977,14 @@ class GameDetailDialog(QDialog):
             clean_desc = re.sub(r'<[^>]+>', '', desc)
             self.desc_text.setText(clean_desc)
         else:
-            self.desc_text.setText(
-                "No description available yet.\nClick 'Refresh Info from Steam' or 'Attach Steam Store Link' to fetch game details automatically!"
-            )
+            if getattr(self, 'is_sw', False):
+                self.desc_text.setText(
+                    "No description available yet.\nClick 'Search Cover / Link' to search details or set a custom cover image!"
+                )
+            else:
+                self.desc_text.setText(
+                    "No description available yet.\nClick 'Refresh Info from Steam' or 'Attach Steam Store Link' to fetch game details automatically!"
+                )
 
     def update_screenshots_display(self):
         # Clear existing
@@ -3526,8 +3535,8 @@ class GameCard(QFrame):
             }}
         """)
 
-        is_sw = bool(self.game.get("is_software") or self.game.get("item_type") == "software")
-        act_play = menu.addAction("▶ เปิดโปรแกรม (Launch)" if is_sw else "▶ Play Game")
+        is_sw = bool(self.game.get("is_software") or self.game.get("item_type") == "software" or get_game_platform(self.game) == "software")
+        act_play = menu.addAction("▶ เปิดโปรแกรม (Start)" if is_sw else "▶ Play Game")
         menu.addSeparator()
 
         # Toggle between Game and Software
