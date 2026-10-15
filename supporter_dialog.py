@@ -553,10 +553,10 @@ class TrueMoneyVoucherDialog(QDialog):
         self.btn_redeem = QPushButton("ส่งซองของขวัญ TrueMoney")
         self.btn_redeem.setCursor(Qt.PointingHandCursor)
         self.btn_redeem.setStyleSheet(
-            "QPushButton { background: linear-gradient(135deg, #f97316, #ea580c); color: white; font-weight: 700; font-size: 13px; "
+            "QPushButton { background-color: #ea580c; color: white; font-weight: 700; font-size: 13px; "
             "border: none; border-radius: 0px; padding: 11px; } "
-            "QPushButton:hover { background: #c2410c; } "
-            "QPushButton:disabled { background: #334155; color: #64748b; }"
+            "QPushButton:hover { background-color: #c2410c; } "
+            "QPushButton:disabled { background-color: #334155; color: #64748b; }"
         )
         self.btn_redeem.clicked.connect(self._on_redeem)
         s1_layout.addWidget(self.btn_redeem)
@@ -1171,9 +1171,9 @@ class SupportersDialog(QDialog):
         btn_tm = QPushButton("🎁 ส่งซอง TrueMoney")
         btn_tm.setCursor(Qt.PointingHandCursor)
         btn_tm.setStyleSheet(
-            "QPushButton { background: linear-gradient(135deg, #f97316, #ea580c); color: white; font-weight: 700; font-size: 12px; "
-            "border: none; border-radius: 0px; padding: 10px; }"
-            "QPushButton:hover { background: #c2410c; }"
+            "QPushButton { background-color: #ea580c; color: white; font-weight: 700; font-size: 12px; "
+            "border: none; border-radius: 0px; padding: 10px; } "
+            "QPushButton:hover { background-color: #c2410c; }"
         )
         btn_tm.clicked.connect(self._open_truemoney_voucher)
         col.addWidget(btn_tm)
