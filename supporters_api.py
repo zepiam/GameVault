@@ -34,7 +34,7 @@ import urllib.parse
 _log = logging.getLogger(__name__)
 
 # ★ API endpoint — user สามารถเปลี่ยนได้ภายหลัง
-SUPPORTERS_API_URL = "https://men9ch.com/api"
+SUPPORTERS_API_URL = "https://www.men9ch.com/api"
 # ★ ใช้ User-Agent เหมือน browser จริง — security plugin ของ host บล็อก bot UA
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
 
@@ -45,8 +45,8 @@ def _browser_headers(extra=None):
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
-        "Origin": "https://men9ch.com",
-        "Referer": "https://men9ch.com/api/upload.html",
+        "Origin": "https://www.men9ch.com",
+        "Referer": "https://www.men9ch.com/api/upload.html",
     }
     if extra:
         h.update(extra)
@@ -205,6 +205,7 @@ def submit_supporter(
     machine_id: str = "",
     platform: str = "",
     channel_url: str = "",
+    source: str = "",
     timeout: int = 30,
 ) -> dict:
     """★ ส่งหลักฐานการสนับสนุน (multipart/form-data) — multi-channel
@@ -274,6 +275,8 @@ def submit_supporter(
         body_parts.append(_field("platform", platform))
     if channel_url:
         body_parts.append(_field("channel_url", channel_url))
+    if source:
+        body_parts.append(_field("source", source))
     body_parts.append(_field("channel", channel))
     if channel == "bank":
         body_parts.append(_field("method", method))
@@ -445,4 +448,106 @@ def open_admin_url(admin_secret: str, api_url: str = SUPPORTERS_API_URL):
     except Exception:
         pass
     return url
+
+
+def redeem_truemoney_voucher(
+    voucher_url: str,
+    api_url: str = SUPPORTERS_API_URL,
+    source: str = "desktop_app",
+    timeout: int = 15,
+) -> dict:
+    """★ ส่งซองของขวัญ TrueMoney ไปตรวจและรับเงินอัตโนมัติ
+
+    Returns:
+        {"ok": True, "tx_id": "...", "amount": 50.0, "currency": "THB"}
+        {"ok": False, "error": "ข้อความผิดพลาด"}
+    """
+    ctx = ssl.create_default_context()
+    ctx.load_default_certs()
+
+    base = api_url.rstrip("/")
+    if base.startswith("https://men9ch.com"):
+        base = "https://www.men9ch.com" + base[18:]
+    elif base.startswith("http://men9ch.com"):
+        base = "https://www.men9ch.com" + base[17:]
+    if base.endswith("api.php"):
+        base = base[:-7]
+    url = f"{base}/truemoney/redeem"
+
+    payload = json.dumps({"voucher_url": voucher_url.strip(), "source": source}).encode("utf-8")
+    headers = _browser_headers({
+        "Content-Type": "application/json",
+        "Content-Length": str(len(payload)),
+    })
+
+    try:
+        req = urllib.request.Request(url, data=payload, method="POST", headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        return json.loads(raw)
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode("utf-8", errors="replace"))
+        except Exception:
+            return {"ok": False, "error": f"HTTP {e.code}: {e.reason}"}
+    except Exception as e:
+        return {"ok": False, "error": f"เกิดข้อผิดพลาด: {e}"}
+
+
+def complete_truemoney_supporter(
+    tx_id: str,
+    name: str,
+    channel_url: str = "",
+    message: str = "",
+    platform: str = "",
+    source: str = "",
+    api_url: str = SUPPORTERS_API_URL,
+    timeout: int = 15,
+) -> dict:
+    """★ บันทึกข้อมูลชื่อและช่องทางโปรโมทของผู้สนับสนุน TrueMoney หลังตัดเงินสำเร็จ
+
+    Returns:
+        {"ok": True, "message": "..."}
+        {"ok": False, "error": "ข้อความผิดพลาด"}
+    """
+    ctx = ssl.create_default_context()
+    ctx.load_default_certs()
+
+    base = api_url.rstrip("/")
+    if base.startswith("https://men9ch.com"):
+        base = "https://www.men9ch.com" + base[18:]
+    elif base.startswith("http://men9ch.com"):
+        base = "https://www.men9ch.com" + base[17:]
+    if base.endswith("api.php"):
+        base = base[:-7]
+    url = f"{base}/truemoney/complete"
+
+    body_data = {
+        "tx_id": tx_id.strip(),
+        "name": name.strip(),
+        "channel_url": channel_url.strip(),
+        "message": message.strip(),
+        "platform": platform.strip(),
+    }
+    if source:
+        body_data["source"] = source.strip()
+
+    payload = json.dumps(body_data).encode("utf-8")
+    headers = _browser_headers({
+        "Content-Type": "application/json",
+        "Content-Length": str(len(payload)),
+    })
+
+    try:
+        req = urllib.request.Request(url, data=payload, method="POST", headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        return json.loads(raw)
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode("utf-8", errors="replace"))
+        except Exception:
+            return {"ok": False, "error": f"HTTP {e.code}: {e.reason}"}
+    except Exception as e:
+        return {"ok": False, "error": f"เกิดข้อผิดพลาด: {e}"}
 

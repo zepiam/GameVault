@@ -5510,7 +5510,7 @@ class MainWindow(QMainWindow):
 
     def open_supporters_dialog(self):
         from supporter_dialog import SupportersDialog
-        dlg = SupportersDialog(self)
+        dlg = SupportersDialog(self, app_name="GameVault by MeN9CH")
         dlg.exec()
 
     def on_tray_activated(self, reason):
