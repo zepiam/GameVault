@@ -12,14 +12,42 @@ import os
 import sys
 import math
 
-from PySide6.QtCore import Qt, QThread, Signal, QDate, QTime, QUrl, QSize
-from PySide6.QtGui import QPixmap, QIcon, QDesktopServices
-from PySide6.QtWidgets import (
-    QDialog, QWidget, QFrame, QLabel, QPushButton, QLineEdit, QVBoxLayout,
-    QHBoxLayout, QFormLayout, QFileDialog, QMessageBox, QComboBox, QDoubleSpinBox,
-    QProgressBar, QTextEdit, QDateEdit, QTimeEdit, QButtonGroup, QRadioButton,
-    QScrollArea, QSizePolicy,
-)
+try:
+    from PyQt6.QtCore import Qt, QThread, pyqtSignal as Signal, QDate, QTime, QUrl, QSize
+    from PyQt6.QtGui import QPixmap, QIcon, QDesktopServices, QAction
+    from PyQt6.QtWidgets import (
+        QDialog, QWidget, QFrame, QLabel, QPushButton, QLineEdit, QVBoxLayout,
+        QHBoxLayout, QFormLayout, QFileDialog, QMessageBox, QComboBox, QDoubleSpinBox,
+        QProgressBar, QTextEdit, QDateEdit, QTimeEdit, QButtonGroup, QRadioButton,
+        QScrollArea, QSizePolicy,
+    )
+    # PyQt6 Enum Compatibility Shims
+    if not hasattr(QFormLayout, "ExpandingFieldsGrow"):
+        QFormLayout.ExpandingFieldsGrow = QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+    if not hasattr(QMessageBox, "Yes"):
+        QMessageBox.Yes = QMessageBox.StandardButton.Yes
+        QMessageBox.No = QMessageBox.StandardButton.No
+    if not hasattr(QSizePolicy, "Fixed"):
+        QSizePolicy.Fixed = QSizePolicy.Policy.Fixed
+    if not hasattr(QDialog, "Accepted"):
+        QDialog.Accepted = QDialog.DialogCode.Accepted
+    if not hasattr(Qt, "PointingHandCursor"):
+        Qt.PointingHandCursor = Qt.CursorShape.PointingHandCursor
+    if not hasattr(Qt, "AlignCenter"):
+        Qt.AlignCenter = Qt.AlignmentFlag.AlignCenter
+    if not hasattr(Qt, "KeepAspectRatio"):
+        Qt.KeepAspectRatio = Qt.AspectRatioMode.KeepAspectRatio
+    if not hasattr(Qt, "SmoothTransformation"):
+        Qt.SmoothTransformation = Qt.TransformationMode.SmoothTransformation
+except ImportError:
+    from PySide6.QtCore import Qt, QThread, Signal, QDate, QTime, QUrl, QSize
+    from PySide6.QtGui import QPixmap, QIcon, QDesktopServices, QAction
+    from PySide6.QtWidgets import (
+        QDialog, QWidget, QFrame, QLabel, QPushButton, QLineEdit, QVBoxLayout,
+        QHBoxLayout, QFormLayout, QFileDialog, QMessageBox, QComboBox, QDoubleSpinBox,
+        QProgressBar, QTextEdit, QDateEdit, QTimeEdit, QButtonGroup, QRadioButton,
+        QScrollArea, QSizePolicy,
+    )
 
 from supporters_api import (
     fetch_supporters, format_amount, SUPPORTERS_API_URL,
