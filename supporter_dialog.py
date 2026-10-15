@@ -504,7 +504,7 @@ class TrueMoneyVoucherDialog(QDialog):
         self._amount = 0.0
         self._currency = "THB"
 
-        self.setWindowTitle("🍊 ส่งซอง TrueMoney (ตรวจรับเงินทันที)")
+        self.setWindowTitle("🍊 ส่งซอง TrueMoney (อัตโนมัติ 100% — ปลอดภัย ไม่ต้องรอแอดมินตรวจ)")
         self.setModal(True)
         self.setMinimumWidth(480)
         self.setStyleSheet(_DIALOG_STYLESHEET)
@@ -546,12 +546,16 @@ class TrueMoneyVoucherDialog(QDialog):
         self.voucher_input.returnPressed.connect(self._on_redeem)
         s1_layout.addWidget(self.voucher_input)
 
-        self.btn_redeem = QPushButton("⚡ ตรวจสอบและรับเงินสนับสนุน")
+        self.note_lbl = QLabel("📌 กรุณาตรวจสอบลิงก์ซองให้ถูกต้องก่อนส่ง")
+        self.note_lbl.setStyleSheet("font-size: 11px; color: #fb923c; font-weight: 600; background: transparent; border: none;")
+        s1_layout.addWidget(self.note_lbl)
+
+        self.btn_redeem = QPushButton("ส่งซองของขวัญ TrueMoney")
         self.btn_redeem.setCursor(Qt.PointingHandCursor)
         self.btn_redeem.setStyleSheet(
             "QPushButton { background: linear-gradient(135deg, #f97316, #ea580c); color: white; font-weight: 700; font-size: 13px; "
-            "border: none; border-radius: 0px; padding: 11px; }"
-            "QPushButton:hover { background: #c2410c; }"
+            "border: none; border-radius: 0px; padding: 11px; } "
+            "QPushButton:hover { background: #c2410c; } "
             "QPushButton:disabled { background: #334155; color: #64748b; }"
         )
         self.btn_redeem.clicked.connect(self._on_redeem)
@@ -593,9 +597,9 @@ class TrueMoneyVoucherDialog(QDialog):
         self.form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("ชื่อหรือฉายาของคุณ *")
+        self.name_input.setPlaceholderText("ชื่อของคุณ หรือนามแฝง *")
         self.name_input.setMaxLength(50)
-        self.form.addRow("👤 ชื่อที่แสดง:", self.name_input)
+        self.form.addRow("👤 ชื่อของคุณ / นามแฝง:", self.name_input)
 
         platform_field = QWidget()
         p_row = QHBoxLayout(platform_field)
@@ -633,11 +637,19 @@ class TrueMoneyVoucherDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _on_redeem(self):
-        url = self.voucher_input.text().strip()
-        if not url:
+        raw = self.voucher_input.text().strip()
+        if not raw:
             QMessageBox.warning(self, "ข้อมูลไม่ครบ", "กรุณาวางลิงก์ซองของขวัญ TrueMoney")
             self.voucher_input.setFocus()
             return
+
+        # Auto-clean URL: extract https://gift.truemoney.com/campaign/?v=...
+        import re
+        match = re.search(r'https?://gift\.truemoney\.com/campaign/\?v=[a-zA-Z0-9_\-]+', raw)
+        if match:
+            url = match.group(0)
+        else:
+            url = raw
 
         if "gift.truemoney.com" not in url:
             QMessageBox.warning(
@@ -647,7 +659,7 @@ class TrueMoneyVoucherDialog(QDialog):
             return
 
         self.btn_redeem.setEnabled(False)
-        self.btn_redeem.setText("⚡ กำลังตรวจสอบและดึงเงิน...")
+        self.btn_redeem.setText("⏳ กำลังส่งซองของขวัญและดึงยอดเงิน...")
         self.progress.setVisible(True)
         self.progress.setValue(0)
 
@@ -657,7 +669,7 @@ class TrueMoneyVoucherDialog(QDialog):
 
     def _on_redeemed(self, result: dict):
         self.btn_redeem.setEnabled(True)
-        self.btn_redeem.setText("⚡ ตรวจสอบและรับเงินสนับสนุน")
+        self.btn_redeem.setText("ส่งซองของขวัญ TrueMoney")
         self.progress.setVisible(False)
 
         if not result.get("ok"):
