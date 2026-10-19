@@ -113,12 +113,14 @@ class LibraryDB:
                 return True
         return False
 
-    def add_game(self, name: str, exe_path: str, folder_path: str, appid: Optional[int] = None, cover_path: Optional[str] = None, is_software: bool = False, item_type: str = "game") -> Dict:
-        # Check if game with exact exe_path or folder_path already exists (protect existing entries)
-        norm_exe = os.path.normpath(exe_path).lower()
+    def add_game(self, name: str, exe_path: str, folder_path: str, appid: Optional[int] = None, cover_path: Optional[str] = None, is_software: bool = False, item_type: str = "game", is_installed: bool = True, source: str = "local", last_played: Optional[float] = None) -> Dict:
+        # Check if game with exact exe_path, folder_path, or appid already exists (protect existing entries)
+        norm_exe = os.path.normpath(exe_path).lower() if exe_path else ""
         norm_folder = os.path.normpath(folder_path).lower() if folder_path else ""
         for existing in self.games:
-            if os.path.normpath(existing.get("exe_path", "")).lower() == norm_exe:
+            if appid and existing.get("appid") == appid:
+                return existing
+            if norm_exe and os.path.normpath(existing.get("exe_path", "")).lower() == norm_exe:
                 return existing
             if norm_folder and os.path.normpath(existing.get("folder_path", "")).lower() == norm_folder:
                 return existing
@@ -138,11 +140,13 @@ class LibraryDB:
             "folder_path": folder_path,
             "appid": appid,
             "cover_path": cover_path or default_cover,
-            "play_count": 0,
-            "last_played": None,
+            "play_count": 1 if last_played else 0,
+            "last_played": last_played,
             "date_added": time.time(),
             "is_software": is_software,
-            "item_type": item_type if is_software else "game"
+            "item_type": item_type if is_software else "game",
+            "is_installed": is_installed,
+            "source": source
         }
         self.games.append(game)
         self.save()
@@ -178,28 +182,34 @@ class LibraryDB:
             self.games = [g for g in self.games if g.get("id") != game_id]
             self.save()
 
-    def get_recently_played_games(self, limit: int = 5, include_software: bool = False) -> List[Dict]:
+    def get_recently_played_games(self, limit: int = 10, include_software: bool = False) -> List[Dict]:
         """Returns the top N most recently played items, sorted by last_played descending."""
         pool = self.games if include_software else [
             g for g in self.games if not (g.get("is_software") or g.get("item_type") == "software")
         ]
-        played = [g for g in pool if g.get("last_played") and g.get("last_played", 0) > 0]
+        hide_demos = bool(self.get_setting("hide_steam_demos", False))
+        if hide_demos:
+            import re
+            pool = [g for g in pool if not (g.get("source") == "steam" and re.search(r"\bdemo\b", g.get("name", ""), re.IGNORECASE))]
+
+        # Only show installed items in Recent Play!
+        played = [g for g in pool if g.get("last_played") and g.get("last_played", 0) > 0 and bool(g.get("is_installed", True))]
         played.sort(key=lambda x: x.get("last_played", 0), reverse=True)
         if len(played) >= limit:
             return played[:limit]
 
-        # Supplement with favorites if fewer than limit
+        # Supplement with installed favorites if fewer than limit
         res = list(played)
         seen_ids = {g["id"] for g in res}
-        favorites = [g for g in pool if g.get("is_favorite") and g["id"] not in seen_ids]
+        favorites = [g for g in pool if g.get("is_favorite") and g["id"] not in seen_ids and bool(g.get("is_installed", True))]
         for f in favorites:
             res.append(f)
             seen_ids.add(f["id"])
             if len(res) >= limit:
                 return res[:limit]
 
-        # Supplement with remaining items in pool
-        others = [g for g in pool if g["id"] not in seen_ids]
+        # Supplement with remaining installed items in pool
+        others = [g for g in pool if g["id"] not in seen_ids and bool(g.get("is_installed", True))]
         for o in others:
             res.append(o)
             if len(res) >= limit:

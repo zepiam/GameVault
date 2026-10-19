@@ -24,7 +24,7 @@ from typing import Optional, List, Dict, Tuple
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QPoint, QUrl
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QLocalServer, QLocalSocket
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QAction, QCursor, QFontDatabase, QPen, QPainterPath
+from PyQt6.QtGui import QIcon, QPixmap, QImage, QPainter, QColor, QFont, QAction, QCursor, QFontDatabase, QPen, QPainterPath
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox, QFileDialog,
@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QMenu, QSizePolicy, QToolButton, QSlider, QTextEdit,
     QColorDialog, QListWidget, QListWidgetItem, QCheckBox, QSystemTrayIcon,
     QStackedWidget, QFileIconProvider, QRadioButton, QButtonGroup,
-    QProxyStyle, QStyle, QWidgetAction
+    QProxyStyle, QStyle, QWidgetAction, QSpinBox
 )
 
 import winreg
@@ -174,11 +174,12 @@ def get_executable_icon(target_path: str, lnk_path: str = "", target_size: int =
 
 _COVER_CACHE: Dict[str, QPixmap] = {}
 
-def get_cached_cover_pixmap(cover_path: str, poster_width: int, poster_height: int) -> Optional[QPixmap]:
+def get_cached_cover_pixmap(cover_path: str, poster_width: int, poster_height: int, is_grayscale: bool = False) -> Optional[QPixmap]:
     """Caches scaled cover posters in memory to avoid repetitive disk I/O and expensive smooth transformations."""
     if not cover_path or not os.path.exists(cover_path):
         return None
-    cache_key = f"{cover_path}|{poster_width}|{poster_height}"
+    mode_tag = "gray" if is_grayscale else "color"
+    cache_key = f"{cover_path}|{poster_width}|{poster_height}|{mode_tag}"
     if cache_key in _COVER_CACHE:
         return _COVER_CACHE[cache_key]
 
@@ -192,8 +193,13 @@ def get_cached_cover_pixmap(cover_path: str, poster_width: int, poster_height: i
             Qt.TransformationMode.SmoothTransformation
         )
         cropped = scaled.copy(0, 0, poster_width, poster_height)
-        _COVER_CACHE[cache_key] = cropped
-        return cropped
+        if is_grayscale:
+            img = cropped.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
+            res_pix = QPixmap.fromImage(img)
+        else:
+            res_pix = cropped
+        _COVER_CACHE[cache_key] = res_pix
+        return res_pix
     except Exception as e:
         print(f"[CoverCache] Error loading {cover_path}: {e}")
         return None
@@ -409,7 +415,7 @@ def get_game_platform(game: Dict) -> str:
     norm_path = f"{folder} {exe} {lnk}".replace("/", "\\")
 
     # 2. Steam Library
-    if "steamlibrary" in norm_path or "steamapps" in norm_path or "\\steam\\" in norm_path:
+    if "steamlibrary" in norm_path or "steamapps" in norm_path or "\\steam\\" in norm_path or game.get("source") == "steam" or (game.get("appid") and not game.get("exe_path")):
         return "steam"
 
     # 3. Epic Games Store
@@ -434,6 +440,37 @@ def get_game_platform(game: Dict) -> str:
 def is_steam_game(game: Dict) -> bool:
     """Backward compatibility helper."""
     return get_game_platform(game) == "steam"
+
+
+DEMO_PATTERNS = [
+    r'\bdemo\b',
+    r'\bplaytest\b',
+    r'\bplay test\b',
+    r'\bclosed beta\b',
+    r'\bopen beta\b',
+    r'\bbeta test\b',
+    r'\bbeta\b',
+    r'\bfree trial\b',
+    r'\btrial version\b',
+    r'\(demo\)',
+    r'\[demo\]',
+    r'- demo',
+    r': demo',
+    r'\bprologue\b',
+    r'\bdedicated server\b',
+    r'\btest server\b',
+    r'\btesting grounds\b',
+]
+
+def is_game_demo_or_playtest(game: Dict) -> bool:
+    """Returns True if the game is identified as a demo, playtest, beta, or dedicated server."""
+    if game.get("item_type") == "demo" or game.get("is_demo"):
+        return True
+    name = (game.get("name") or "").lower()
+    for p in DEMO_PATTERNS:
+        if re.search(p, name, re.IGNORECASE):
+            return True
+    return False
 
 
 PLATFORM_META = {
@@ -544,9 +581,35 @@ class ScannerThread(QThread):
                 progress_callback=cb,
                 cancel_flag=lambda: self._is_cancelled
             )
-        else:
-            results = []
         self.finished_scan.emit(results)
+
+
+class SteamSyncWorker(QThread):
+    progress = pyqtSignal(str, int, int)
+    finished_sync = pyqtSignal(dict)
+
+    def __init__(self, db, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
+    def run(self):
+        try:
+            import steam_sync
+            def cb(name, curr, total):
+                self.progress.emit(name, curr, total)
+
+            res = steam_sync.sync_steam_library_into_db(
+                self.db,
+                progress_callback=cb,
+                cancel_flag=lambda: self._is_cancelled
+            )
+            self.finished_sync.emit(res)
+        except Exception as e:
+            self.finished_sync.emit({"status": "error", "message": str(e)})
 
 
 class CoverFetchWorker(QThread):
@@ -759,8 +822,8 @@ class SettingsDialog(QDialog):
         self._initial_bg_path = self.db.get_setting("bg_image_path", "") if self.db else ""
         self._initial_opacity = self.db.get_setting("bg_opacity", 30) if self.db else 30
         self.setWindowTitle("Setting - GameVault")
-        self.resize(920, 680)
-        self.setMinimumSize(860, 620)
+        self.resize(920, 750)
+        self.setMinimumSize(860, 660)
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {BG_MAIN};
@@ -1323,14 +1386,133 @@ class SettingsDialog(QDialog):
         self.tray_include_sw_cb.setChecked(tray_inc_sw)
         tray_sw_box.addWidget(self.tray_include_sw_cb)
 
-        tray_sw_sub = QLabel("ค่าเริ่มต้น: แสดงเฉพาะ 5 เกมล่าสุดเท่านั้น (ติ๊กถูกหากต้องการให้แสดงโปรแกรมที่คุณใช้งานล่าสุดร่วมด้วย)")
+        # Recent items count spinbox
+        recent_limit_row = QHBoxLayout()
+        recent_limit_row.setContentsMargins(0, 4, 0, 0)
+        recent_limit_row.setSpacing(10)
+        recent_limit_lbl = QLabel("จำนวนรายการเล่นล่าสุดที่จะแสดงใน System Tray (Recent Items):")
+        recent_limit_lbl.setStyleSheet("color: #f8fafc; font-size: 13px;")
+        recent_limit_row.addWidget(recent_limit_lbl)
+
+        self.recent_limit_spin = QSpinBox()
+        self.recent_limit_spin.setRange(3, 20)
+        curr_limit = self.db.get_setting("recent_games_limit", 10) if self.db else 10
+        self.recent_limit_spin.setValue(int(curr_limit))
+        self.recent_limit_spin.setSuffix(" รายการ")
+        self.recent_limit_spin.setFixedWidth(120)
+        self.recent_limit_spin.setStyleSheet(f"""
+            QSpinBox {{
+                background-color: {BG_INPUT};
+                color: #f8fafc;
+                border: 1px solid {BORDER_DEFAULT};
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 13px;
+                font-weight: bold;
+            }}
+            QSpinBox:focus {{
+                border-color: {ACCENT_BLUE};
+            }}
+        """)
+        recent_limit_row.addWidget(self.recent_limit_spin)
+        recent_limit_row.addStretch()
+        tray_sw_box.addLayout(recent_limit_row)
+
+        tray_sw_sub = QLabel("ค่าเริ่มต้น: 10 รายการ (สามารถปรับได้ตั้งแต่ 3 - 20 รายการ เพื่อความรวดเร็วในการเปิดเกม)")
         tray_sw_sub.setWordWrap(True)
-        tray_sw_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 29px;")
+        tray_sw_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px; padding-left: 4px;")
         tray_sw_box.addWidget(tray_sw_sub)
         psw_layout.addLayout(tray_sw_box)
 
+        # Hairline divider
+        sep_steam = QFrame()
+        sep_steam.setFrameShape(QFrame.Shape.HLine)
+        sep_steam.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
+        psw_layout.addWidget(sep_steam)
+
+        # Steam Library Synchronization Section
+        steam_sec_box = QVBoxLayout()
+        steam_sec_box.setSpacing(10)
+        steam_sec_title = QLabel("♨ การเชื่อมต่อและซิงค์คลัง Steam (Steam Synchronization):")
+        steam_sec_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #f8fafc;")
+        steam_sec_box.addWidget(steam_sec_title)
+
+        steam_sync_row = QHBoxLayout()
+        steam_sync_row.setSpacing(14)
+
+        sync_btn_settings = QPushButton("♨ ซิงค์คลัง Steam เดี๋ยวนี้ (Sync Steam)")
+        sync_btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
+        sync_btn_settings.setStyleSheet("""
+            QPushButton {
+                background-color: #0284c7;
+                color: #ffffff;
+                font-weight: bold;
+                border: 1px solid #38bdf8;
+                border-radius: 6px;
+                padding: 8px 18px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #0369a1;
+            }
+        """)
+        sync_btn_settings.clicked.connect(self.trigger_steam_sync_from_settings)
+        steam_sync_row.addWidget(sync_btn_settings)
+
+        steam_sync_hint = QLabel("ตรวจจับเกมที่ติดตั้งในเครื่อง และเกมที่มีในคลัง Steam อัตโนมัติ (100% Local ไม่ต้องล็อกอิน)")
+        steam_sync_hint.setWordWrap(True)
+        steam_sync_hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12.5px;")
+        steam_sync_row.addWidget(steam_sync_hint, 1)
+        steam_sec_box.addLayout(steam_sync_row)
+
+        self.show_steam_btn_cb = QCheckBox("แสดงปุ่ม '♨ Sync Steam' บนแถบเครื่องมือหลัก (Show button on main toolbar)")
+        saved_show_btn = self.db.get_setting("show_steam_sync_btn", None) if self.db else None
+        if saved_show_btn is None:
+            has_synced = self.db.get_setting("steam_synced", False) if self.db else False
+            self.show_steam_btn_cb.setChecked(not has_synced)
+        else:
+            self.show_steam_btn_cb.setChecked(bool(saved_show_btn))
+        steam_sec_box.addWidget(self.show_steam_btn_cb)
+
+        show_btn_sub = QLabel("ค่าเริ่มต้น: ปิดซ่อนปุ่มอัตโนมัติหลังจากซิงค์ครั้งแรก เพื่อรักษาความสะอาดตาของแถบเมนูด้านบน")
+        show_btn_sub.setWordWrap(True)
+        show_btn_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; padding-left: 29px;")
+        steam_sec_box.addWidget(show_btn_sub)
+        psw_layout.addLayout(steam_sec_box)
+
+        # Hairline divider
+        sep_demos = QFrame()
+        sep_demos.setFrameShape(QFrame.Shape.HLine)
+        sep_demos.setStyleSheet("background-color: #1e293b; border: none; max-height: 1px;")
+        psw_layout.addWidget(sep_demos)
+
+        # Demo & Playtest Filter Section
+        demo_sec_box = QVBoxLayout()
+        demo_sec_box.setSpacing(4)
+        demo_sec_title = QLabel("🚫 การกรองเกมทดลองเล่น / เดโม (Demos & Playtests Filter):")
+        demo_sec_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #f8fafc;")
+        demo_sec_box.addWidget(demo_sec_title)
+
+        self.hide_demos_cb = QCheckBox("ซ่อนเกมเดโม และเกมทดลองเล่น (Hide Demos, Playtests & Betas) [แนะนำ]")
+        hide_demos_val = self.db.get_setting("hide_steam_demos", True) if self.db else True
+        self.hide_demos_cb.setChecked(hide_demos_val)
+        demo_sec_box.addWidget(self.hide_demos_cb)
+
+        demo_sub = QLabel("กรองเกมที่เป็น Demo, Playtest, Trial, Prologue หรือ Dedicated Server ออกจากคลังเกมหลักเพื่อไม่ให้รกสายตา")
+        demo_sub.setWordWrap(True)
+        demo_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; padding-left: 29px;")
+        demo_sec_box.addWidget(demo_sub)
+        psw_layout.addLayout(demo_sec_box)
+
         psw_layout.addStretch()
-        self.pages.addWidget(page_software)
+
+        scroll_sw = QScrollArea()
+        scroll_sw.setWidgetResizable(True)
+        scroll_sw.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_sw.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        scroll_sw.viewport().setStyleSheet("background: transparent;")
+        scroll_sw.setWidget(page_software)
+        self.pages.addWidget(scroll_sw)
 
         # ==================== Page 3: SteamGridDB Cover Integration & Tutorial ====================
         page_sgdb = QWidget()
@@ -1829,6 +2011,8 @@ class SettingsDialog(QDialog):
             sw_mode = "cover" if self.radio_cover.isChecked() else "icon"
             self.db.set_setting("software_display_mode", sw_mode)
             self.db.set_setting("tray_include_software", self.tray_include_sw_cb.isChecked())
+            if hasattr(self, 'recent_limit_spin'):
+                self.db.set_setting("recent_games_limit", self.recent_limit_spin.value())
             self.db.set_setting("auto_check_updates", self.auto_update_cb.isChecked())
 
             # Save Theme & Custom Wallpaper Settings
@@ -1836,6 +2020,12 @@ class SettingsDialog(QDialog):
             self.db.set_setting("theme_mode", theme_mode)
             self.db.set_setting("bg_image_path", self.bg_path_edit.text().strip())
             self.db.set_setting("bg_opacity", self.opacity_slider.value())
+
+            # Save Steam & Demo Settings
+            if hasattr(self, 'show_steam_btn_cb'):
+                self.db.set_setting("show_steam_sync_btn", self.show_steam_btn_cb.isChecked())
+            if hasattr(self, 'hide_demos_cb'):
+                self.db.set_setting("hide_steam_demos", self.hide_demos_cb.isChecked())
 
             # Save Tray Icon Theme
             tray_theme = "auto"
@@ -1846,9 +2036,17 @@ class SettingsDialog(QDialog):
             self.db.set_setting("tray_icon_theme", tray_theme)
             if self.main_window:
                 self.main_window.update_tray_icon()
+                self.main_window.update_steam_btn_visibility()
+                self.main_window.rearrange_grid()
 
         QMessageBox.information(self, "Saved", "บันทึกการตั้งค่าเรียบร้อยแล้ว!")
         self.accept()
+
+    def trigger_steam_sync_from_settings(self):
+        if not self.main_window:
+            return
+        self.accept()
+        QtCore.QTimer.singleShot(150, self.main_window.start_steam_sync)
 
     def get_app_exclusion_targets(self) -> Tuple[Path, str]:
         """Dynamically detects the application directory and executable name."""
@@ -2734,19 +2932,35 @@ class GameDetailDialog(QDialog):
         is_sw = bool(self.game.get("is_software") or self.game.get("item_type") == "software" or get_game_platform(self.game) == "software")
         self.is_sw = is_sw
 
-        play_btn = QPushButton("▶ START PROGRAM" if is_sw else "▶ PLAY GAME")
-        play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        play_btn.setFixedHeight(44)
-        play_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {ACCENT_GREEN};
-                color: white;
-                font-size: 15px;
-                font-weight: bold;
-                border-radius: 6px;
-            }}
-            QPushButton:hover {{ background-color: {ACCENT_GREEN_HOVER}; }}
-        """)
+        is_installed = bool(self.game.get("is_installed", True))
+        if not is_installed:
+            play_btn = QPushButton("📥 INSTALL VIA STEAM")
+            play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            play_btn.setFixedHeight(44)
+            play_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #0284c7;
+                    color: white;
+                    font-size: 15px;
+                    font-weight: bold;
+                    border-radius: 6px;
+                }
+                QPushButton:hover { background-color: #0369a1; }
+            """)
+        else:
+            play_btn = QPushButton("▶ START PROGRAM" if is_sw else "▶ PLAY GAME")
+            play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            play_btn.setFixedHeight(44)
+            play_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {ACCENT_GREEN};
+                    color: white;
+                    font-size: 15px;
+                    font-weight: bold;
+                    border-radius: 6px;
+                }}
+                QPushButton:hover {{ background-color: {ACCENT_GREEN_HOVER}; }}
+            """)
         play_btn.clicked.connect(self.launch_game)
         left_col.addWidget(play_btn)
 
@@ -2766,10 +2980,11 @@ class GameDetailDialog(QDialog):
         border_color_btn.clicked.connect(self.choose_border_color)
         left_col.addWidget(border_color_btn)
 
-        open_folder_btn = QPushButton("📂 Open Program Folder" if is_sw else "📂 Open Game Folder")
-        open_folder_btn.setStyleSheet(f"background-color: {BG_PANEL}; border: 1px solid {BORDER_DEFAULT}; color: {TEXT_PRIMARY};")
-        open_folder_btn.clicked.connect(self.open_folder)
-        left_col.addWidget(open_folder_btn)
+        if is_installed:
+            open_folder_btn = QPushButton("📂 Open Program Folder" if is_sw else "📂 Open Game Folder")
+            open_folder_btn.setStyleSheet(f"background-color: {BG_PANEL}; border: 1px solid {BORDER_DEFAULT}; color: {TEXT_PRIMARY};")
+            open_folder_btn.clicked.connect(self.open_folder)
+            left_col.addWidget(open_folder_btn)
 
         left_col.addStretch()
         layout.addLayout(left_col)
@@ -2847,34 +3062,42 @@ class GameDetailDialog(QDialog):
         self.dev_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
         meta_lay.addWidget(self.dev_lbl)
 
-        # Executable Row with Change Button
-        exe_box = QHBoxLayout()
-        exe_name = os.path.basename(game['exe_path'])
-        self.exe_lbl = QLabel(f"<b>Executable:</b> <span style='color: {ACCENT_BLUE}; font-family: Consolas, monospace;'>{exe_name}</span> &nbsp;&nbsp;|&nbsp;&nbsp; <b>Plays:</b> {game.get('play_count', 0)}")
-        self.exe_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
-        exe_box.addWidget(self.exe_lbl)
+        # Executable Row with Change Button (Installed) or Status Hint (Uninstalled)
+        if is_installed:
+            exe_box = QHBoxLayout()
+            exe_name = os.path.basename(game.get('exe_path') or '')
+            self.exe_lbl = QLabel(f"<b>Executable:</b> <span style='color: {ACCENT_BLUE}; font-family: Consolas, monospace;'>{exe_name}</span> &nbsp;&nbsp;|&nbsp;&nbsp; <b>Plays:</b> {game.get('play_count', 0)}")
+            self.exe_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
+            exe_box.addWidget(self.exe_lbl)
 
-        change_exe_btn = QPushButton("🎯 Change .exe")
-        change_exe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        change_exe_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {BG_CARD};
-                border: 1px solid {BORDER_DEFAULT};
-                border-radius: 4px;
-                color: {ACCENT_BLUE};
-                padding: 4px 10px;
-                font-size: 11px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: {BG_CARD_HOVER};
-                border-color: {BORDER_HOVER};
-            }}
-        """)
-        change_exe_btn.clicked.connect(self.change_executable)
-        exe_box.addWidget(change_exe_btn)
-        exe_box.addStretch()
-        meta_lay.addLayout(exe_box)
+            change_exe_btn = QPushButton("🎯 Change .exe")
+            change_exe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            change_exe_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {BG_CARD};
+                    border: 1px solid {BORDER_DEFAULT};
+                    border-radius: 4px;
+                    color: {ACCENT_BLUE};
+                    padding: 4px 10px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {BG_CARD_HOVER};
+                    border-color: {BORDER_HOVER};
+                }}
+            """)
+            change_exe_btn.clicked.connect(self.change_executable)
+            exe_box.addWidget(change_exe_btn)
+            exe_box.addStretch()
+            meta_lay.addLayout(exe_box)
+        else:
+            status_box = QHBoxLayout()
+            self.status_lbl = QLabel("<b>Status:</b> <span style='color: #38bdf8; font-weight: bold;'>☁️ อยู่ในคลัง Steam (ยังไม่ได้ดาวน์โหลดลงเครื่อง)</span> &nbsp;&nbsp;·&nbsp;&nbsp; กดปุ่ม <i>INSTALL VIA STEAM</i> ด้านซ้ายเพื่อติดตั้ง")
+            self.status_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; font-family: 'Segoe UI', 'Leelawadee UI', sans-serif;")
+            status_box.addWidget(self.status_lbl)
+            status_box.addStretch()
+            meta_lay.addLayout(status_box)
 
         # Platform Selector Row
         plat_box = QHBoxLayout()
@@ -2956,10 +3179,14 @@ class GameDetailDialog(QDialog):
         self.update_poster()
 
     def update_poster(self):
+        is_installed = bool(self.game.get("is_installed", True))
         cover_path = self.game.get("cover_path")
         if cover_path and os.path.exists(cover_path):
             pix = QPixmap(cover_path)
             if not pix.isNull():
+                if not is_installed:
+                    img = pix.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
+                    pix = QPixmap.fromImage(img)
                 self.poster_label.setPixmap(
                     pix.scaled(220, 330, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
                 )
@@ -2967,8 +3194,11 @@ class GameDetailDialog(QDialog):
                 return
 
         self.poster_label.setPixmap(QPixmap())
-        is_sw = getattr(self, 'is_sw', False)
-        self.poster_label.setText(f"💻\n{self.game['name']}" if is_sw else f"🎮\n{self.game['name']}")
+        if not is_installed:
+            self.poster_label.setText(f"☁️\n{self.game['name']}")
+        else:
+            is_sw = getattr(self, 'is_sw', False)
+            self.poster_label.setText(f"💻\n{self.game['name']}" if is_sw else f"🎮\n{self.game['name']}")
 
     def update_description_display(self):
         desc = self.game.get("description") or self.game.get("short_description")
@@ -3267,6 +3497,127 @@ class GameDetailDialog(QDialog):
             self.on_update_callback(self.game["id"])
 
 
+class LibrarySectionHeader(QFrame):
+    """
+    Polished Section Divider Header for GameVault.
+    Separates Installed Games and Uninstalled Steam Library Games with clean typography and badges.
+    """
+    toggled = pyqtSignal()
+
+    def __init__(self, title: str, subtitle: str, count: int, is_installed: bool, is_collapsible: bool = False, is_collapsed: bool = False, parent=None):
+        super().__init__(parent)
+        self.is_collapsible = is_collapsible
+        self.is_collapsed = is_collapsed
+        self.setObjectName("LibrarySectionHeader")
+        top_margin = 12 if not is_installed else 2
+        bottom_margin = 4
+        self.setFixedHeight(48 if is_installed else 58)
+
+        if is_collapsible:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setToolTip("คลิกเพื่อย่อ/ขยายส่วนนี้ (Click to collapse/expand)")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 4, 14, 4)
+        layout.setSpacing(10)
+
+        if is_installed:
+            accent_border = "rgba(16, 185, 129, 0.35)"
+            icon_bg = "#059669"
+            icon_symbol = "▶"
+            badge_bg = "#064e3b"
+            badge_fg = "#34d399"
+            badge_border = "#059669"
+            badge_text = f"{count} เกมพร้อมเล่น"
+        else:
+            accent_border = "rgba(56, 189, 248, 0.35)"
+            icon_bg = "#0369a1"
+            icon_symbol = "☁️"
+            badge_bg = "#0c2135"
+            badge_fg = "#38bdf8"
+            badge_border = "#0284c7"
+            badge_text = f"{count} เกมในคลัง Steam"
+
+        self.setStyleSheet(f"""
+            QFrame#LibrarySectionHeader {{
+                background-color: #0c1424;
+                border: 1px solid {accent_border};
+                border-radius: 8px;
+                margin-top: {top_margin}px;
+                margin-bottom: {bottom_margin}px;
+            }}
+            QFrame#LibrarySectionHeader:hover {{
+                background-color: #101c33;
+                border: 1px solid {accent_border};
+                margin-top: {top_margin}px;
+                margin-bottom: {bottom_margin}px;
+            }}
+        """)
+
+        # Collapse Arrow if collapsible
+        if is_collapsible:
+            arrow_char = "▶" if is_collapsed else "▼"
+            self.arrow_lbl = QLabel(arrow_char)
+            self.arrow_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: bold;")
+            layout.addWidget(self.arrow_lbl)
+
+        # Icon Pill
+        icon_lbl = QLabel(icon_symbol)
+        icon_lbl.setFixedSize(26, 26)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_lbl.setStyleSheet(f"""
+            background-color: {icon_bg};
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: bold;
+            border-radius: 6px;
+        """)
+        layout.addWidget(icon_lbl)
+
+        # Title Label
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet("""
+            color: #f8fafc;
+            font-size: 13.5px;
+            font-weight: 800;
+            font-family: 'Segoe UI', 'Leelawadee UI', sans-serif;
+        """)
+        layout.addWidget(title_lbl)
+
+        # Subtitle Hint Label
+        if subtitle:
+            sub_lbl = QLabel(subtitle)
+            sub_lbl.setStyleSheet("""
+                color: #94a3b8;
+                font-size: 11.5px;
+                font-weight: 500;
+                margin-left: 4px;
+                font-family: 'Segoe UI', 'Leelawadee UI', sans-serif;
+            """)
+            layout.addWidget(sub_lbl)
+
+        layout.addStretch()
+
+        # Counter Badge Pill
+        count_badge = QLabel(badge_text)
+        count_badge.setStyleSheet(f"""
+            background-color: {badge_bg};
+            color: {badge_fg};
+            border: 1px solid {badge_border};
+            border-radius: 12px;
+            padding: 3px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            font-family: 'Segoe UI', 'Leelawadee UI', sans-serif;
+        """)
+        layout.addWidget(count_badge)
+
+    def mousePressEvent(self, event):
+        if self.is_collapsible and event.button() == Qt.MouseButton.LeftButton:
+            self.toggled.emit()
+        super().mousePressEvent(event)
+
+
 class GameCard(QFrame):
     """
     Steam-style Game Poster Card.
@@ -3357,29 +3708,44 @@ class GameCard(QFrame):
         self.apply_border_style()
 
     def update_badges(self):
-        show_source = True
-        if self.db:
-            show_source = self.db.get_setting("show_source_badges", True)
-
-        if not show_source:
-            self.source_badge.setVisible(False)
-        else:
+        is_installed = bool(self.game.get("is_installed", True))
+        if not is_installed:
             self.source_badge.setVisible(True)
-            platform = get_game_platform(self.game)
-            meta = PLATFORM_META.get(platform, PLATFORM_META["local"])
-            self.source_badge.setText(meta["label"])
-            self.source_badge.setStyleSheet(f"""
-                background-color: {meta['bg']};
-                color: {meta['text']};
-                border: 1px solid {meta['border']};
+            self.source_badge.setText("☁️ IN LIBRARY")
+            self.source_badge.setStyleSheet("""
+                background-color: #0c2135;
+                color: #38bdf8;
+                border: 1px solid #0284c7;
                 border-radius: 4px;
                 padding: 1px 6px;
                 font-size: 10px;
                 font-weight: 800;
             """)
-            self.source_badge.setToolTip(meta["tip"])
+            self.source_badge.setToolTip("เกมนี้อยู่ในคลัง Steam ของคุณ (ยังไม่ได้ดาวน์โหลดลงเครื่อง)")
+        else:
+            show_source = True
+            if self.db:
+                show_source = self.db.get_setting("show_source_badges", True)
 
-        # Favorite indicator label (no click button under cover, user right-clicks)
+            if not show_source:
+                self.source_badge.setVisible(False)
+            else:
+                self.source_badge.setVisible(True)
+                platform = get_game_platform(self.game)
+                meta = PLATFORM_META.get(platform, PLATFORM_META["local"])
+                self.source_badge.setText(meta["label"])
+                self.source_badge.setStyleSheet(f"""
+                    background-color: {meta['bg']};
+                    color: {meta['text']};
+                    border: 1px solid {meta['border']};
+                    border-radius: 4px;
+                    padding: 1px 6px;
+                    font-size: 10px;
+                    font-weight: 800;
+                """)
+                self.source_badge.setToolTip(meta["tip"])
+
+        # Favorite indicator label
         is_fav = bool(self.game.get("is_favorite", False))
         self.fav_badge.setVisible(is_fav)
 
@@ -3393,6 +3759,22 @@ class GameCard(QFrame):
                 "border_default": "#cbd5e1" if theme_mode == "light" else BORDER_DEFAULT,
                 "border_hover": "#94a3b8" if theme_mode == "light" else BORDER_HOVER
             }
+        
+        is_installed = bool(self.game.get("is_installed", True))
+        if not is_installed:
+            self.setStyleSheet(f"""
+                QFrame#GameCard {{
+                    background-color: #090e18;
+                    border: 1.5px solid #1e293b;
+                    border-radius: 10px;
+                }}
+                QFrame#GameCard:hover {{
+                    background-color: #0f172a;
+                    border: 1.5px solid #0284c7;
+                }}
+            """)
+            return
+
         color = self.game.get("border_color")
         if color:
             self.setStyleSheet(f"""
@@ -3452,6 +3834,7 @@ class GameCard(QFrame):
         self.refresh_cover()
 
     def refresh_cover(self):
+        is_installed = bool(self.game.get("is_installed", True))
         is_sw = bool(self.game.get("is_software") or self.game.get("item_type") == "software")
         poster_height = int(self.card_width * 1.5)
         poster_width = self.card_width - 12
@@ -3489,14 +3872,27 @@ class GameCard(QFrame):
 
         cover_path = self.game.get("cover_path")
         if cover_path:
-            cropped = get_cached_cover_pixmap(cover_path, poster_width, poster_height)
-            if cropped and not cropped.isNull():
-                self.image_label.setPixmap(cropped)
+            pix = get_cached_cover_pixmap(cover_path, poster_width, poster_height, is_grayscale=(not is_installed))
+            if pix and not pix.isNull():
+                self.image_label.setPixmap(pix)
                 self.image_label.setText("")
                 self.image_label.setStyleSheet("border-radius: 6px;")
                 return
 
         # Sleek placeholder
+        if not is_installed:
+            self.image_label.setPixmap(QPixmap())
+            self.image_label.setText(f"☁️\n{self.game['name']}")
+            self.image_label.setStyleSheet(f"""
+                background-color: #090e18;
+                color: #64748b;
+                font-size: 11px;
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 6px;
+            """)
+            return
+
         icon_sym = "💻" if is_sw else "🎮"
         self.image_label.setPixmap(QPixmap())
         self.image_label.setText(f"{icon_sym}\n{self.game['name']}")
@@ -3535,8 +3931,13 @@ class GameCard(QFrame):
             }}
         """)
 
+        is_installed = bool(self.game.get("is_installed", True))
         is_sw = bool(self.game.get("is_software") or self.game.get("item_type") == "software" or get_game_platform(self.game) == "software")
-        act_play = menu.addAction("▶ เปิดโปรแกรม (Start)" if is_sw else "▶ Play Game")
+        if not is_installed:
+            act_play = menu.addAction("📥 ติดตั้งเกมผ่าน Steam (Install)")
+        else:
+            act_play = menu.addAction("▶ เปิดโปรแกรม (Start)" if is_sw else "▶ Play Game")
+        act_play.triggered.connect(lambda: self.play_requested.emit(self.game))
         menu.addSeparator()
 
         # Toggle between Game and Software
@@ -3735,6 +4136,12 @@ class MainWindow(QMainWindow):
         self.search_timer.setInterval(120)
         self.search_timer.timeout.connect(lambda: self.rearrange_grid(update_tabs=False))
 
+        # Debounce timer for instant, silky-smooth thumbnail size slider (60 FPS without stutter)
+        self.size_timer = QtCore.QTimer(self)
+        self.size_timer.setSingleShot(True)
+        self.size_timer.setInterval(20)
+        self.size_timer.timeout.connect(self._apply_card_size_debounced)
+
         self.setup_ui()
         self.apply_theme_settings()
         self.setup_system_tray()
@@ -3748,6 +4155,13 @@ class MainWindow(QMainWindow):
         # Startup auto-check for application updates in background
         if self.db.get_setting("auto_check_updates", True):
             QtCore.QTimer.singleShot(3000, self.check_app_updates_silently)
+
+        # Startup and periodic check for Steam game installation status (every 25 seconds)
+        self.steam_check_timer = QtCore.QTimer(self)
+        self.steam_check_timer.setInterval(25000)
+        self.steam_check_timer.timeout.connect(self.check_steam_status_silent)
+        self.steam_check_timer.start()
+        QtCore.QTimer.singleShot(2000, self.check_steam_status_silent)
 
         # Check if the application directory was relocated since last exclusion setup
         QtCore.QTimer.singleShot(2500, self.check_defender_relocation_on_startup)
@@ -3822,132 +4236,90 @@ class MainWindow(QMainWindow):
         header_widget.setFixedHeight(44)
         header = QHBoxLayout(header_widget)
         header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(8)
+        header.setSpacing(6)
 
-        # Drive Selector Dropdown
-        self.drive_lbl = QLabel("Drive:")
-        self.drive_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; font-weight: 600;")
-        header.addWidget(self.drive_lbl)
+        # Brand / Title
+        self.brand_title = QLabel("🎮 GameVault")
+        self.brand_title.setStyleSheet(f"color: {ACCENT_BLUE}; font-size: 14px; font-weight: bold; margin-right: 4px;")
+        header.addWidget(self.brand_title)
 
-        self.drive_combo = QComboBox()
-        self.drive_combo.setStyleSheet(f"""
-            QComboBox {{
-                background-color: {BG_PANEL};
-                color: {TEXT_PRIMARY};
-                border: 1px solid {BORDER_DEFAULT};
-                border-radius: 6px;
-                padding: 5px 8px;
-                font-weight: bold;
-                min-width: 60px;
-                font-size: 12px;
-            }}
-            QComboBox::drop-down {{ border: none; }}
-            QComboBox QAbstractItemView {{
-                background-color: {BG_PANEL};
-                color: {TEXT_PRIMARY};
-                selection-background-color: {BG_CARD_HOVER};
-            }}
-        """)
-        drives = scanner.get_available_drives()
-        for d in drives:
-            self.drive_combo.addItem(d)
-        header.addWidget(self.drive_combo)
-
-        # Scan Drive Button
-        self.scan_drive_btn = QPushButton("Scan Drive")
-        self.scan_drive_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.scan_drive_btn.setStyleSheet(f"""
+        # Unified Add & Scan Button with Dropdown Menu
+        self.add_btn = QPushButton("➕ เพิ่ม / สแกนเกม ▾")
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_btn.setToolTip("เพิ่มเกมเดี่ยว หรือสแกนหาเกมในโฟลเดอร์/ไดรฟ์ (Add Game or Scan Library)")
+        self.add_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {ACCENT_BLUE};
                 color: #08111e;
                 font-weight: bold;
                 border-radius: 6px;
-                padding: 6px 11px;
+                padding: 6px 14px;
                 font-size: 12px;
+                border: 1px solid {ACCENT_BLUE};
             }}
-            QPushButton:hover {{ background-color: #7dd3fc; }}
-        """)
-        self.scan_drive_btn.clicked.connect(self.scan_selected_drive)
-        header.addWidget(self.scan_drive_btn)
-
-        # Scan Custom Folder Button
-        self.scan_folder_btn = QPushButton("📁 Browse")
-        self.scan_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.scan_folder_btn.setToolTip("เลือกโฟลเดอร์เกมเพื่อสแกน (Browse Folder...)")
-        self.scan_folder_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {BG_PANEL};
-                color: {TEXT_PRIMARY};
-                border: 1px solid {BORDER_DEFAULT};
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 12px;
-                font-weight: 600;
+            QPushButton:hover {{
+                background-color: #7dd3fc;
+                border-color: #7dd3fc;
             }}
-            QPushButton:hover {{ background-color: {BG_CARD}; border-color: {BORDER_HOVER}; }}
         """)
-        self.scan_folder_btn.clicked.connect(self.scan_custom_folder)
-        header.addWidget(self.scan_folder_btn)
-
-        # Check New Games from Monitored Directories Button
-        self.sync_btn = QPushButton("🔄 Check New")
-        self.sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.sync_btn.setToolTip("ตรวจหาเกมใหม่จากโฟลเดอร์ที่บันทึกไว้ (ข้ามเกมเดิม ไม่ลบที่แก้ไว้)")
-        self.sync_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #059669;
-                color: white;
-                font-weight: bold;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 12px;
-            }
-            QPushButton:hover { background-color: #10b981; }
-        """)
-        self.sync_btn.clicked.connect(lambda: self.start_monitored_scan(silent=False))
-        header.addWidget(self.sync_btn)
-
-        # Add Single Item (Game or Software) Button with Menu
-        self.add_btn = QPushButton("➕ Add")
-        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_btn.setToolTip("เพิ่มเกมหรือโปรแกรมเข้าคลัง (+ Add Game / Software)")
-        self.add_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {BG_PANEL};
-                color: {TEXT_PRIMARY};
-                border: 1px solid {BORDER_DEFAULT};
-                border-radius: 6px;
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{ background-color: {BG_CARD}; border-color: {BORDER_HOVER}; }}
-        """)
-        add_menu = QMenu(self)
-        add_menu.setStyleSheet(f"""
+        self.add_menu = QMenu(self)
+        self.add_menu.setStyleSheet(f"""
             QMenu {{
                 background-color: {BG_PANEL};
                 color: {TEXT_PRIMARY};
                 border: 1px solid {BORDER_DEFAULT};
-                border-radius: 6px;
-                padding: 4px;
+                border-radius: 8px;
+                padding: 6px;
             }}
             QMenu::item {{
-                padding: 8px 18px;
-                border-radius: 4px;
+                padding: 8px 20px;
+                border-radius: 5px;
                 font-size: 12px;
             }}
             QMenu::item:selected {{
                 background-color: {BG_CARD_HOVER};
                 color: {ACCENT_BLUE};
             }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: {BORDER_DEFAULT};
+                margin: 4px 8px;
+            }}
         """)
-        act_add_g = add_menu.addAction("🎮 เพิ่มเกม (Add Game .exe / .lnk)...")
-        act_add_s = add_menu.addAction("💻 เพิ่มโปรแกรม (Add Software .exe / .lnk)...")
+
+        act_add_g = self.add_menu.addAction("🎮 เพิ่มเกมเดี่ยว (Add Game .exe / .lnk)...")
+        act_add_s = self.add_menu.addAction("💻 เพิ่มโปรแกรมเดี่ยว (Add Software .exe / .lnk)...")
+        self.add_menu.addSeparator()
+
+        act_scan_folder = self.add_menu.addAction("📁 สแกนโฟลเดอร์หาเกม (Scan Custom Folder)...")
+        act_scan_folder.triggered.connect(self.scan_custom_folder)
+
+        # Drive scan submenu
+        scan_drive_menu = self.add_menu.addMenu("💽 สแกนทั้งไดรฟ์ (Scan Drive)...")
+        scan_drive_menu.setStyleSheet(self.add_menu.styleSheet())
+        drives = scanner.get_available_drives()
+        for d in drives:
+            act_d = scan_drive_menu.addAction(f"สแกนไดรฟ์ {d}")
+            act_d.triggered.connect(lambda checked=False, drive=d: self.scan_specified_drive(drive))
+
+        act_check_new = self.add_menu.addAction("🔄 ตรวจหาเกมใหม่ (Check New Games in Monitored Folders)")
+        act_check_new.triggered.connect(lambda: self.start_monitored_scan(silent=False))
+
+        self.add_menu.addSeparator()
+        act_steam_sync = self.add_menu.addAction("♨ ซิงค์คลัง Steam (Sync Steam Library)...")
+        act_steam_sync.triggered.connect(self.start_steam_sync)
+
         act_add_g.triggered.connect(lambda: self.add_single_item_manually(is_software=False))
         act_add_s.triggered.connect(lambda: self.add_single_item_manually(is_software=True))
-        self.add_btn.setMenu(add_menu)
+        self.add_btn.setMenu(self.add_menu)
         header.addWidget(self.add_btn)
+
+        # Compatibility attributes
+        self.drive_combo = None
+        self.scan_drive_btn = None
+        self.scan_folder_btn = None
+        self.sync_btn = None
+        self.steam_sync_btn = None
 
         # Settings & API Key Button
         self.settings_btn = QPushButton("⚙ Settings")
@@ -4000,7 +4372,7 @@ class MainWindow(QMainWindow):
         self.size_slider = QSlider(Qt.Orientation.Horizontal)
         self.size_slider.setRange(120, 260)
         self.size_slider.setValue(self.card_size)
-        self.size_slider.setFixedWidth(75)
+        self.size_slider.setFixedWidth(65)
         self.size_slider.setStyleSheet(f"""
             QSlider::groove:horizontal {{
                 height: 6px;
@@ -4021,12 +4393,13 @@ class MainWindow(QMainWindow):
             }}
         """)
         self.size_slider.valueChanged.connect(self.on_card_size_changed)
+        self.size_slider.sliderReleased.connect(self.on_card_size_slider_released)
         header.addWidget(self.size_slider)
 
         # Search Bar
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 Search library...")
-        self.search_input.setFixedWidth(145)
+        self.search_input.setPlaceholderText("🔍 ค้นหาในคลัง (Search)...")
+        self.search_input.setFixedWidth(190)
         self.search_input.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {BG_PANEL};
@@ -4302,14 +4675,14 @@ class MainWindow(QMainWindow):
             }}
         """)
 
-        if hasattr(self, 'drive_lbl'):
+        if hasattr(self, 'drive_lbl') and self.drive_lbl:
             self.drive_lbl.setStyleSheet(f"color: {colors['text_muted']}; font-size: 12px; font-weight: 600;")
-        if hasattr(self, 'zoom_lbl'):
+        if hasattr(self, 'zoom_lbl') and self.zoom_lbl:
             self.zoom_lbl.setStyleSheet(f"color: {colors['text_muted']}; font-size: 12px; font-weight: 600;")
-        if hasattr(self, 'tab_icon'):
+        if hasattr(self, 'tab_icon') and self.tab_icon:
             self.tab_icon.setStyleSheet(f"color: {colors['text_muted']}; font-size: 13px; font-weight: bold;")
 
-        if hasattr(self, 'drive_combo'):
+        if hasattr(self, 'drive_combo') and self.drive_combo:
             self.drive_combo.setStyleSheet(f"""
                 QComboBox {{
                     background-color: {colors['bg_panel']};
@@ -4329,7 +4702,7 @@ class MainWindow(QMainWindow):
                 }}
             """)
 
-        if hasattr(self, 'scan_folder_btn'):
+        if hasattr(self, 'scan_folder_btn') and self.scan_folder_btn:
             self.scan_folder_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {colors['bg_panel']};
@@ -4343,18 +4716,46 @@ class MainWindow(QMainWindow):
                 QPushButton:hover {{ background-color: {colors['bg_card_hover']}; border-color: {colors['border_hover']}; }}
             """)
 
-        if hasattr(self, 'add_btn'):
+        if hasattr(self, 'add_btn') and self.add_btn:
             self.add_btn.setStyleSheet(f"""
                 QPushButton {{
+                    background-color: {ACCENT_BLUE};
+                    color: #08111e;
+                    border: 1px solid {ACCENT_BLUE};
+                    border-radius: 6px;
+                    padding: 6px 14px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: #7dd3fc;
+                    border-color: #7dd3fc;
+                }}
+            """)
+
+        if hasattr(self, 'add_menu') and self.add_menu:
+            self.add_menu.setStyleSheet(f"""
+                QMenu {{
                     background-color: {colors['bg_panel']};
                     color: {colors['text_primary']};
                     border: 1px solid {colors['border_default']};
-                    border-radius: 6px;
-                    padding: 6px 12px;
-                    font-size: 12px;
-                    font-weight: 600;
+                    border-radius: 8px;
+                    padding: 6px;
                 }}
-                QPushButton:hover {{ background-color: {colors['bg_card_hover']}; border-color: {colors['border_hover']}; }}
+                QMenu::item {{
+                    padding: 8px 20px;
+                    border-radius: 5px;
+                    font-size: 12px;
+                }}
+                QMenu::item:selected {{
+                    background-color: {colors['bg_card_hover']};
+                    color: {ACCENT_BLUE};
+                }}
+                QMenu::separator {{
+                    height: 1px;
+                    background-color: {colors['border_default']};
+                    margin: 4px 8px;
+                }}
             """)
 
         if hasattr(self, 'settings_btn'):
@@ -4435,11 +4836,22 @@ class MainWindow(QMainWindow):
             self.rearrange_grid()
 
     def on_card_size_changed(self, val: int):
-        self.card_size = val
-        self.db.set_setting("card_size", val)
-        for card in self.card_widgets.values():
-            card.set_card_size(val)
-        self.rearrange_grid()
+        # Quantize to steps of 6 to guarantee high cover cache hits and eliminate micro-jitter
+        quantized = round(val / 6) * 6
+        if quantized == getattr(self, "_last_quantized_size", None):
+            return
+        self._last_quantized_size = quantized
+        self.card_size = quantized
+        self.size_timer.start()
+
+    def _apply_card_size_debounced(self):
+        # Only visible cards are resized in rearrange_grid, eliminating redundant 300+ card loops
+        self.rearrange_grid(update_tabs=False)
+
+    def on_card_size_slider_released(self):
+        # Save setting to disk only when user releases the slider handle
+        if self.db:
+            self.db.set_setting("card_size", self.card_size)
 
     def set_filter_category(self, cat: str):
         self.current_filter_category = cat
@@ -4448,11 +4860,20 @@ class MainWindow(QMainWindow):
 
     def update_tab_styles(self):
         games = self.db.get_all_games()
-        game_items = [g for g in games if not (g.get("is_software") or g.get("item_type") == "software")]
+        hide_demos = self.db.get_setting("hide_steam_demos", True) if self.db else True
+        game_items = [
+            g for g in games
+            if not (g.get("is_software") or g.get("item_type") == "software")
+            and not (hide_demos and is_game_demo_or_playtest(g))
+        ]
         software_items = [g for g in games if (g.get("is_software") or g.get("item_type") == "software")]
-        total_game_count = len(game_items)
+        total_game_count = sum(1 for g in game_items if bool(g.get("is_installed", True)))
         software_count = len(software_items)
-        fav_count = sum(1 for g in games if g.get("is_favorite"))
+        fav_count = sum(
+            1 for g in games
+            if g.get("is_favorite")
+            and not (hide_demos and not (g.get("is_software") or g.get("item_type") == "software") and is_game_demo_or_playtest(g))
+        )
 
         counts = {
             "steam": 0,
@@ -4529,13 +4950,23 @@ class MainWindow(QMainWindow):
 
     def get_filtered_games(self) -> List[Dict]:
         games = self.db.get_all_games()
-        # Favorite sorting: Favorites first (at the top rows), then alphabetical by title
-        games.sort(key=lambda x: (not bool(x.get("is_favorite", False)), x["name"].lower()))
+        hide_demos = self.db.get_setting("hide_steam_demos", True) if self.db else True
+
+        # Sort: 1. Installed games first, 2. Favorites, 3. Alphabetical by title
+        games.sort(key=lambda x: (
+            not bool(x.get("is_installed", True)),
+            not bool(x.get("is_favorite", False)),
+            x["name"].lower()
+        ))
 
         filtered = []
         for g in games:
             is_sw = bool(g.get("is_software") or g.get("item_type") == "software")
             p = get_game_platform(g)
+
+            # Filter out Demos & Playtests if enabled
+            if hide_demos and not is_sw and is_game_demo_or_playtest(g):
+                continue
 
             if self.current_filter_category == "software":
                 if not is_sw:
@@ -4559,15 +4990,22 @@ class MainWindow(QMainWindow):
                     continue
                 elif self.current_filter_category == "other" and p != "local":
                     continue
+                elif self.current_filter_category == "all" and not bool(g.get("is_installed", True)):
+                    continue
             filtered.append(g)
         return filtered
 
-    def scan_selected_drive(self):
-        drive = self.drive_combo.currentText()
+    def scan_specified_drive(self, drive: str):
         if not drive:
             return
         self.db.add_monitored_folder(drive)
         self.start_scan(drive)
+
+    def scan_selected_drive(self, drive: str = None):
+        target = drive or (self.drive_combo.currentText() if hasattr(self, 'drive_combo') and self.drive_combo else None)
+        if not target:
+            return
+        self.scan_specified_drive(target)
 
     def scan_custom_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Games")
@@ -4575,10 +5013,23 @@ class MainWindow(QMainWindow):
             self.db.add_monitored_folder(folder)
             self.start_scan(folder)
 
+    def check_steam_status_silent(self):
+        """Silently checks if any uninstalled Steam game was recently installed in Steam, or vice versa."""
+        try:
+            import steam_sync
+            changed = steam_sync.check_and_update_installed_steam_games(self.db)
+            if changed > 0:
+                self.load_games_to_ui()
+        except Exception as e:
+            print(f"[check_steam_status_silent] Error: {e}")
+
     def on_refresh_clicked(self):
         """Refreshes library UI and scans monitored directories for newly added games."""
         if self.scanner_thread and self.scanner_thread.isRunning():
             return
+
+        # 0. Check Steam installation status first
+        self.check_steam_status_silent()
 
         # 1. Reload existing games into UI grid & tabs
         self.load_games_to_ui()
@@ -4604,10 +5055,15 @@ class MainWindow(QMainWindow):
         self.progress_frame.setVisible(True)
         self.progress_label.setText(f"Scanning {directory}...")
         self.progress_bar.setValue(0)
-        self.scan_drive_btn.setEnabled(False)
-        self.scan_folder_btn.setEnabled(False)
-        self.sync_btn.setEnabled(False)
-        if hasattr(self, 'refresh_lib_btn'):
+        if hasattr(self, 'add_btn') and self.add_btn:
+            self.add_btn.setEnabled(False)
+        if hasattr(self, 'scan_drive_btn') and self.scan_drive_btn:
+            self.scan_drive_btn.setEnabled(False)
+        if hasattr(self, 'scan_folder_btn') and self.scan_folder_btn:
+            self.scan_folder_btn.setEnabled(False)
+        if hasattr(self, 'sync_btn') and self.sync_btn:
+            self.sync_btn.setEnabled(False)
+        if hasattr(self, 'refresh_lib_btn') and self.refresh_lib_btn:
             self.refresh_lib_btn.setEnabled(False)
 
         self.scanner_thread = ScannerThread(
@@ -4634,10 +5090,15 @@ class MainWindow(QMainWindow):
         self.progress_frame.setVisible(True)
         self.progress_label.setText("Checking for new games in monitored libraries...")
         self.progress_bar.setValue(0)
-        self.scan_drive_btn.setEnabled(False)
-        self.scan_folder_btn.setEnabled(False)
-        self.sync_btn.setEnabled(False)
-        if hasattr(self, 'refresh_lib_btn'):
+        if hasattr(self, 'add_btn') and self.add_btn:
+            self.add_btn.setEnabled(False)
+        if hasattr(self, 'scan_drive_btn') and self.scan_drive_btn:
+            self.scan_drive_btn.setEnabled(False)
+        if hasattr(self, 'scan_folder_btn') and self.scan_folder_btn:
+            self.scan_folder_btn.setEnabled(False)
+        if hasattr(self, 'sync_btn') and self.sync_btn:
+            self.sync_btn.setEnabled(False)
+        if hasattr(self, 'refresh_lib_btn') and self.refresh_lib_btn:
             self.refresh_lib_btn.setEnabled(False)
 
         self.scanner_thread = ScannerThread(
@@ -4650,10 +5111,15 @@ class MainWindow(QMainWindow):
 
     def on_monitored_scan_finished(self, results: List[Dict], silent: bool = False):
         self.progress_frame.setVisible(False)
-        self.scan_drive_btn.setEnabled(True)
-        self.scan_folder_btn.setEnabled(True)
-        self.sync_btn.setEnabled(True)
-        if hasattr(self, 'refresh_lib_btn'):
+        if hasattr(self, 'add_btn') and self.add_btn:
+            self.add_btn.setEnabled(True)
+        if hasattr(self, 'scan_drive_btn') and self.scan_drive_btn:
+            self.scan_drive_btn.setEnabled(True)
+        if hasattr(self, 'scan_folder_btn') and self.scan_folder_btn:
+            self.scan_folder_btn.setEnabled(True)
+        if hasattr(self, 'sync_btn') and self.sync_btn:
+            self.sync_btn.setEnabled(True)
+        if hasattr(self, 'refresh_lib_btn') and self.refresh_lib_btn:
             self.refresh_lib_btn.setEnabled(True)
 
         new_count = 0
@@ -4689,6 +5155,76 @@ class MainWindow(QMainWindow):
                     "ไม่พบเกมใหม่ ทุกเกมในโฟลเดอร์ที่บันทึกไว้เป็นปัจจุบันแล้ว!"
                 )
 
+    def start_steam_sync(self):
+        if hasattr(self, 'steam_sync_worker') and self.steam_sync_worker and self.steam_sync_worker.isRunning():
+            return
+
+        self.progress_frame.setVisible(True)
+        self.progress_label.setText("กำลังเชื่อมต่อและซิงค์คลัง Steam...")
+        self.progress_bar.setValue(0)
+        if hasattr(self, 'add_btn') and self.add_btn:
+            self.add_btn.setEnabled(False)
+        if hasattr(self, 'steam_sync_btn') and self.steam_sync_btn:
+            self.steam_sync_btn.setEnabled(False)
+            self.steam_sync_btn.setText("⏳ ซิงค์...")
+
+        self.steam_sync_worker = SteamSyncWorker(self.db, parent=self)
+        self.steam_sync_worker.progress.connect(self.on_steam_sync_progress)
+        self.steam_sync_worker.finished_sync.connect(self.on_steam_sync_finished)
+        self.steam_sync_worker.start()
+
+    def on_steam_sync_progress(self, name: str, current: int, total: int):
+        pct = int((current / max(1, total)) * 100)
+        self.progress_bar.setValue(pct)
+        self.progress_label.setText(f"กำลังซิงค์คลัง Steam ({current}/{total}): {name}")
+
+    def update_steam_btn_visibility(self):
+        if not hasattr(self, 'steam_sync_btn') or not self.steam_sync_btn:
+            return
+        show_btn = self.db.get_setting("show_steam_sync_btn", None) if self.db else None
+        if show_btn is None:
+            # Default: hide if already synced at least once, otherwise show
+            has_synced = self.db.get_setting("steam_synced", False) if self.db else False
+            self.steam_sync_btn.setVisible(not has_synced)
+        else:
+            self.steam_sync_btn.setVisible(bool(show_btn))
+
+    def on_steam_sync_finished(self, res: dict):
+        self.progress_frame.setVisible(False)
+        if hasattr(self, 'add_btn') and self.add_btn:
+            self.add_btn.setEnabled(True)
+        if hasattr(self, 'steam_sync_btn') and self.steam_sync_btn:
+            self.steam_sync_btn.setEnabled(True)
+            self.steam_sync_btn.setText("♨ Sync Steam")
+
+        if res.get("status") == "error":
+            QMessageBox.warning(
+                self, "Steam Sync Error",
+                f"ไม่สามารถซิงค์คลัง Steam ได้:\n{res.get('message', 'Unknown error')}"
+            )
+            return
+
+        # Mark as synced so button hides from top toolbar if default
+        if self.db:
+            self.db.set_setting("steam_synced", True)
+        self.update_steam_btn_visibility()
+
+        # Reload games to UI and rearrange
+        self.load_games_to_ui()
+        self.rearrange_grid()
+
+        installed_count = res.get("installed_total", 0)
+        uninstalled_count = res.get("uninstalled_total", 0)
+        new_items = res.get("new_installed", 0) + res.get("new_uninstalled", 0)
+
+        msg = (
+            f"ซิงค์คลัง Steam สำเร็จเรียบร้อยแล้วครับ!\n\n"
+            f"💾 เกมที่ติดตั้งในเครื่อง: {installed_count} เกม (พร้อมเปิดเล่นทันที)\n"
+            f"☁️ เกมในคลังรอโหลด: {uninstalled_count} เกม (แสดงเป็นปกสีเทา)\n\n"
+            f"💡 เพิ่มเกมใหม่เข้าสู่ GameVault: {new_items} รายการ"
+        )
+        QMessageBox.information(self, "♨ ซิงค์คลัง Steam สำเร็จ", msg)
+
     def on_scan_progress(self, folder_name: str, current: int, total: int):
         self.progress_label.setText(f"Scanning ({current}/{total}): {folder_name}")
         if total > 0:
@@ -4701,10 +5237,15 @@ class MainWindow(QMainWindow):
 
     def on_scan_finished(self, results: List[Dict]):
         self.progress_frame.setVisible(False)
-        self.scan_drive_btn.setEnabled(True)
-        self.scan_folder_btn.setEnabled(True)
-        self.sync_btn.setEnabled(True)
-        if hasattr(self, 'refresh_lib_btn'):
+        if hasattr(self, 'add_btn') and self.add_btn:
+            self.add_btn.setEnabled(True)
+        if hasattr(self, 'scan_drive_btn') and self.scan_drive_btn:
+            self.scan_drive_btn.setEnabled(True)
+        if hasattr(self, 'scan_folder_btn') and self.scan_folder_btn:
+            self.scan_folder_btn.setEnabled(True)
+        if hasattr(self, 'sync_btn') and self.sync_btn:
+            self.sync_btn.setEnabled(True)
+        if hasattr(self, 'refresh_lib_btn') and self.refresh_lib_btn:
             self.refresh_lib_btn.setEnabled(True)
 
         new_count = 0
@@ -5014,6 +5555,11 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         QtCore.QTimer.singleShot(60, self.rearrange_grid)
 
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QtCore.QEvent.Type.ActivationChange and self.isActiveWindow():
+            QtCore.QTimer.singleShot(250, self.check_steam_status_silent)
+
     def rearrange_grid(self, update_tabs: bool = True):
         all_games = self.db.get_all_games()
         if update_tabs:
@@ -5025,11 +5571,15 @@ class MainWindow(QMainWindow):
         # Disable container updates while altering layout to eliminate UI stutter and repaint lag
         self.grid_container.setUpdatesEnabled(False)
         try:
-            # Remove all items currently in grid_layout (clean slate, widgets not destroyed)
+            # Remove all items currently in grid_layout (clean slate, cards preserved, headers deleted)
             while self.grid_layout.count() > 0:
                 item = self.grid_layout.takeAt(0)
-                if item.widget():
-                    item.widget().setVisible(False)
+                w = item.widget()
+                if w:
+                    if isinstance(w, LibrarySectionHeader):
+                        w.deleteLater()
+                    else:
+                        w.setVisible(False)
 
             # ---------------- Responsive Dynamic Grid Calculation ----------------
             viewport_w = self.scroll_area.viewport().width()
@@ -5060,7 +5610,9 @@ class MainWindow(QMainWindow):
             side_margin = max(4, (viewport_w - total_grid_w) // 2)
             self.grid_layout.setContentsMargins(side_margin, 6, side_margin, 16)
 
-            visible_count = 0
+            # Separate into installed and uninstalled lists
+            installed_list = []
+            uninstalled_list = []
             for game in filtered_games:
                 if filter_text and filter_text not in game["name"].lower():
                     card = self.card_widgets.get(game["id"])
@@ -5068,6 +5620,32 @@ class MainWindow(QMainWindow):
                         card.setVisible(False)
                     continue
 
+                if bool(game.get("is_installed", True)):
+                    installed_list.append(game)
+                else:
+                    uninstalled_list.append(game)
+
+            has_sections = (len(uninstalled_list) > 0 and self.current_filter_category == "steam")
+            is_collapsed = getattr(self, "uninstalled_steam_collapsed", False)
+            visible_count = len(installed_list) + (len(uninstalled_list) if not is_collapsed else 0)
+
+            current_row = 0
+
+            # 1. Section 1: Installed Games Header
+            if has_sections and len(installed_list) > 0:
+                header_inst = LibrarySectionHeader(
+                    "เกมที่ติดตั้งในเครื่อง",
+                    "พร้อมเปิดเล่นได้ทันที",
+                    len(installed_list),
+                    is_installed=True,
+                    parent=self.grid_container
+                )
+                self.grid_layout.addWidget(header_inst, current_row, 0, 1, columns)
+                header_inst.setVisible(True)
+                current_row += 1
+
+            # 2. Place Installed Cards
+            for idx, game in enumerate(installed_list):
                 card = self.card_widgets.get(game["id"])
                 if not card:
                     card = GameCard(game, db=self.db, card_width=effective_card_width, parent=self.grid_container)
@@ -5079,11 +5657,52 @@ class MainWindow(QMainWindow):
                     if abs(card.card_width - effective_card_width) >= 3:
                         card.set_card_size(effective_card_width)
 
-                row = visible_count // columns
-                col = visible_count % columns
-                self.grid_layout.addWidget(card, row, col)
+                r = current_row + (idx // columns)
+                c = idx % columns
+                self.grid_layout.addWidget(card, r, c)
                 card.setVisible(True)
-                visible_count += 1
+
+            if installed_list:
+                current_row += (len(installed_list) + columns - 1) // columns
+
+            # 3. Section 2: Uninstalled Steam Games Header
+            if has_sections:
+                header_uninst = LibrarySectionHeader(
+                    "คลังเกม Steam ที่ยังไม่ได้ติดตั้ง",
+                    "คลิกที่การ์ดเพื่อสั่งติดตั้งลงเครื่องผ่าน Steam ได้ทันที",
+                    len(uninstalled_list),
+                    is_installed=False,
+                    is_collapsible=True,
+                    is_collapsed=is_collapsed,
+                    parent=self.grid_container
+                )
+                header_uninst.toggled.connect(self.toggle_uninstalled_steam)
+                self.grid_layout.addWidget(header_uninst, current_row, 0, 1, columns)
+                header_uninst.setVisible(True)
+                current_row += 1
+
+                if not is_collapsed:
+                    for idx, game in enumerate(uninstalled_list):
+                        card = self.card_widgets.get(game["id"])
+                        if not card:
+                            card = GameCard(game, db=self.db, card_width=effective_card_width, parent=self.grid_container)
+                            card.clicked.connect(self.open_game_details)
+                            card.play_requested.connect(self.launch_game)
+                            card.action_requested.connect(self.handle_card_action)
+                            self.card_widgets[game["id"]] = card
+                        else:
+                            if abs(card.card_width - effective_card_width) >= 3:
+                                card.set_card_size(effective_card_width)
+
+                        r = current_row + (idx // columns)
+                        c = idx % columns
+                        self.grid_layout.addWidget(card, r, c)
+                        card.setVisible(True)
+                else:
+                    for game in uninstalled_list:
+                        card = self.card_widgets.get(game["id"])
+                        if card:
+                            card.setVisible(False)
 
             if visible_count == 0:
                 self.scroll_area.setVisible(False)
@@ -5119,11 +5738,35 @@ class MainWindow(QMainWindow):
             if self.current_filter_category == "software":
                 sw_total = sum(1 for g in all_games if g.get("is_software") or g.get("item_type") == "software")
                 self.count_badge.setText(f"{visible_count} / {sw_total} Software")
+            elif self.current_filter_category == "steam":
+                hide_demos = self.db.get_setting("hide_steam_demos", True) if self.db else True
+                steam_games = [
+                    g for g in all_games
+                    if not (g.get("is_software") or g.get("item_type") == "software")
+                    and not (hide_demos and is_game_demo_or_playtest(g))
+                    and get_game_platform(g) == "steam"
+                ]
+                inst_total = sum(1 for g in steam_games if bool(g.get("is_installed", True)))
+                uninst_total = len(steam_games) - inst_total
+                if uninst_total > 0:
+                    self.count_badge.setText(f"💾 {inst_total} ติดตั้ง · ☁️ {uninst_total} ในคลัง")
+                else:
+                    self.count_badge.setText(f"{visible_count} / {len(steam_games)} Games")
             else:
-                game_total = sum(1 for g in all_games if not (g.get("is_software") or g.get("item_type") == "software"))
-                self.count_badge.setText(f"{visible_count} / {game_total} Games")
+                hide_demos = self.db.get_setting("hide_steam_demos", True) if self.db else True
+                valid_games = [
+                    g for g in all_games
+                    if not (g.get("is_software") or g.get("item_type") == "software")
+                    and not (hide_demos and is_game_demo_or_playtest(g))
+                    and bool(g.get("is_installed", True))
+                ]
+                self.count_badge.setText(f"{visible_count} / {len(valid_games)} Games")
         finally:
             self.grid_container.setUpdatesEnabled(True)
+
+    def toggle_uninstalled_steam(self):
+        self.uninstalled_steam_collapsed = not getattr(self, "uninstalled_steam_collapsed", False)
+        self.rearrange_grid(update_tabs=False)
 
     def filter_games(self, text: str):
         # Debounced search trigger for instant 60+ FPS smooth typing without stutter
@@ -5192,6 +5835,17 @@ class MainWindow(QMainWindow):
         self.update_tab_styles()
 
     def launch_game(self, game: Dict):
+        # 0. If game is not installed (e.g. from Steam library), launch Steam install prompt
+        if not bool(game.get("is_installed", True)):
+            appid = game.get("appid")
+            if appid:
+                try:
+                    os.startfile(f"steam://install/{appid}")
+                    return
+                except Exception as e:
+                    QMessageBox.warning(self, "Steam Error", f"ไม่สามารถเปิดคำสั่งติดตั้ง Steam ได้:\n{e}")
+                    return
+
         # 1. If game was added via shortcut (.lnk) e.g. BlueStacks, launch the shortcut directly
         lnk_path = game.get("lnk_path")
         if lnk_path and os.path.exists(lnk_path):
@@ -5460,11 +6114,18 @@ class MainWindow(QMainWindow):
 
     def populate_tray_menu(self):
         """Dynamically populates the System Tray context menu with recent games/software and controls."""
+        try:
+            import steam_sync
+            steam_sync.check_and_update_installed_steam_games(self.db)
+        except Exception:
+            pass
+
         self.update_tray_icon()
         self.tray_menu.clear()
 
         include_software = self.db.get_setting("tray_include_software", False) if self.db else False
-        recent_items = self.db.get_recently_played_games(limit=5, include_software=include_software)
+        limit = self.db.get_setting("recent_games_limit", 10) if self.db else 10
+        recent_items = self.db.get_recently_played_games(limit=limit, include_software=include_software)
         if recent_items:
             hdr_text = "🎮  รายการล่าสุด (RECENT GAMES & SOFTWARE)" if include_software else "🎮  เกมล่าสุด (RECENT GAMES)"
             hdr_act = QWidgetAction(self.tray_menu)

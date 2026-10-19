@@ -1,6 +1,7 @@
 # Data and Covers (Personal user data)
 games.json
 games_backup.json
+steam_names_cache.json
 covers/
 *.log
 
