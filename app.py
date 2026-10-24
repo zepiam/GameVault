@@ -2661,17 +2661,17 @@ class BorderColorDialog(QDialog):
 class ChangeExeDialog(QDialog):
     """
     Dialog allowing user to:
-    1. See current executable path.
-    2. Pick from all .exe files detected in the game directory.
-    3. Manually browse for any executable on disk.
+    1. See current target / executable path.
+    2. Pick from all runnable files (.exe, .bat, .cmd, .lnk) detected in the game directory.
+    3. Manually browse for any file or script on disk.
     """
     def __init__(self, game: Dict, parent=None):
         super().__init__(parent)
         self.game = game
         self.selected_exe: Optional[str] = None
 
-        self.setWindowTitle(f"Change Executable - {game['name']}")
-        self.setMinimumSize(660, 500)
+        self.setWindowTitle(f"Change Executable / Script - {game['name']}")
+        self.setMinimumSize(680, 520)
         self.setStyleSheet(f"""
             QDialog {{ background-color: {BG_MAIN}; color: {TEXT_PRIMARY}; }}
             QLabel {{ color: {TEXT_PRIMARY}; }}
@@ -2689,7 +2689,7 @@ class ChangeExeDialog(QDialog):
         layout.setSpacing(12)
 
         # Header Title
-        hdr = QLabel(f"🎯 Select Executable for '{game['name']}'")
+        hdr = QLabel(f"🎯 Select Target / Executable for '{game['name']}'")
         hdr.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {TEXT_PRIMARY};")
         layout.addWidget(hdr)
 
@@ -2707,7 +2707,7 @@ class ChangeExeDialog(QDialog):
         curr_lay.setContentsMargins(8, 8, 8, 8)
         curr_lay.setSpacing(4)
 
-        curr_title = QLabel("Current Executable (.exe) Path:")
+        curr_title = QLabel("Current Target / Executable Path (.exe, .bat, etc.):")
         curr_title.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; font-weight: bold;")
         curr_lay.addWidget(curr_title)
 
@@ -2719,7 +2719,7 @@ class ChangeExeDialog(QDialog):
 
         # Manual Browse Button
         browse_row = QHBoxLayout()
-        browse_btn = QPushButton("📂 Browse / Choose .exe Manually (ค้นหาไฟล์เอง)...")
+        browse_btn = QPushButton("📂 เลือกไฟล์สำหรับรันเอง (Browse .exe, .bat, All Files)...")
         browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         browse_btn.setStyleSheet(f"""
             QPushButton {{
@@ -2736,11 +2736,11 @@ class ChangeExeDialog(QDialog):
         browse_row.addStretch()
         layout.addLayout(browse_row)
 
-        # Auto-detected EXEs section
+        # Auto-detected files section
         folder = game.get("folder_path") or os.path.dirname(game.get("exe_path", ""))
         detected_exes = self.find_folder_executables(folder)
 
-        sec_lbl = QLabel(f"Or select from .exe files found in this game folder ({len(detected_exes)} found):")
+        sec_lbl = QLabel(f"Or select from runnable files found in this game folder ({len(detected_exes)} found):")
         sec_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; font-weight: bold; margin-top: 4px;")
         layout.addWidget(sec_lbl)
 
@@ -2753,7 +2753,7 @@ class ChangeExeDialog(QDialog):
         self.list_layout.setContentsMargins(0, 0, 0, 0)
 
         if not detected_exes:
-            empty_lbl = QLabel("No other .exe files found in this game folder.\nPlease use 'Browse...' button above to locate the game's executable.")
+            empty_lbl = QLabel("No executable or script files found in this game folder.\nPlease use 'Browse...' button above to locate the game's launcher file.")
             empty_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; padding: 10px;")
             self.list_layout.addWidget(empty_lbl)
         else:
@@ -2780,6 +2780,7 @@ class ChangeExeDialog(QDialog):
             return results
 
         current_exe = os.path.normpath(self.game.get("exe_path", "")).lower()
+        RUNNABLE_EXTS = ('.exe', '.bat', '.cmd', '.lnk', '.url', '.vbs', '.ps1')
 
         for root, dirs, files in os.walk(folder_path):
             rel_depth = os.path.relpath(root, folder_path).count(os.sep)
@@ -2787,7 +2788,8 @@ class ChangeExeDialog(QDialog):
                 dirs.clear()
                 continue
             for f in files:
-                if f.lower().endswith('.exe'):
+                ext = os.path.splitext(f)[1].lower()
+                if ext in RUNNABLE_EXTS:
                     full_path = os.path.join(root, f)
                     is_current = os.path.normpath(full_path).lower() == current_exe
                     rel_path = os.path.relpath(full_path, folder_path)
@@ -2801,10 +2803,11 @@ class ChangeExeDialog(QDialog):
                         "full_path": full_path,
                         "rel_path": rel_path,
                         "size_mb": size_mb,
+                        "ext": ext,
                         "is_current": is_current
                     })
 
-        # Sort: current at top, then largest file size first
+        # Sort: current at top, then batch/cmd/exe sorted by size
         results.sort(key=lambda x: (not x["is_current"], -x["size_mb"]))
         return results
 
@@ -2827,14 +2830,32 @@ class ChangeExeDialog(QDialog):
         hlay.setContentsMargins(10, 8, 10, 8)
         hlay.setSpacing(10)
 
-        icon_lbl = QLabel("▶" if is_cur else "⚙")
-        icon_lbl.setStyleSheet(f"font-size: 16px; color: {'#10b981' if is_cur else TEXT_MUTED};")
+        ext = item.get("ext", "").lower()
+        if ext in ('.bat', '.cmd'):
+            badge_icon = "📜"
+            type_tag = "[BATCH]"
+            tag_color = "#f59e0b"
+        elif ext == '.lnk':
+            badge_icon = "🔗"
+            type_tag = "[SHORTCUT]"
+            tag_color = "#38bdf8"
+        elif ext in ('.vbs', '.ps1'):
+            badge_icon = "⚡"
+            type_tag = "[SCRIPT]"
+            tag_color = "#a855f7"
+        else:
+            badge_icon = "▶"
+            type_tag = "[EXE]"
+            tag_color = "#10b981"
+
+        icon_lbl = QLabel(badge_icon if not is_cur else "▶")
+        icon_lbl.setStyleSheet(f"font-size: 16px; color: {'#10b981' if is_cur else tag_color};")
         hlay.addWidget(icon_lbl)
 
         info_lay = QVBoxLayout()
         info_lay.setSpacing(2)
 
-        name_lbl = QLabel(item["name"])
+        name_lbl = QLabel(f"{item['name']}  <span style='color: {tag_color}; font-size: 11px; font-weight: bold;'>{type_tag}</span>")
         name_lbl.setStyleSheet(f"font-weight: bold; font-size: 13px; color: {TEXT_PRIMARY};")
         info_lay.addWidget(name_lbl)
 
@@ -2849,7 +2870,7 @@ class ChangeExeDialog(QDialog):
         hlay.addStretch()
 
         if not is_cur:
-            sel_btn = QPushButton("Select This .exe")
+            sel_btn = QPushButton("Select This File")
             sel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             sel_btn.setStyleSheet(f"""
                 QPushButton {{
@@ -2874,7 +2895,10 @@ class ChangeExeDialog(QDialog):
     def browse_manual(self):
         start_dir = self.game.get("folder_path") or os.path.dirname(self.game.get("exe_path", ""))
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Executable File", start_dir, "Executables (*.exe)"
+            self,
+            "เลือกไฟล์สำหรับรัน (Select Target Executable / Script)",
+            start_dir,
+            "All Supported Files (*.exe *.bat *.cmd *.lnk *.url *.vbs *.ps1);;Batch Files (*.bat *.cmd);;Executables (*.exe);;Shortcuts (*.lnk);;All Files (*.*)"
         )
         if file_path:
             self.apply_selection(file_path)
@@ -3066,11 +3090,12 @@ class GameDetailDialog(QDialog):
         if is_installed:
             exe_box = QHBoxLayout()
             exe_name = os.path.basename(game.get('exe_path') or '')
-            self.exe_lbl = QLabel(f"<b>Executable:</b> <span style='color: {ACCENT_BLUE}; font-family: Consolas, monospace;'>{exe_name}</span> &nbsp;&nbsp;|&nbsp;&nbsp; <b>Plays:</b> {game.get('play_count', 0)}")
+            self.exe_lbl = QLabel(f"<b>Target:</b> <span style='color: {ACCENT_BLUE}; font-family: Consolas, monospace;'>{exe_name}</span> &nbsp;&nbsp;|&nbsp;&nbsp; <b>Plays:</b> {game.get('play_count', 0)}")
             self.exe_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
             exe_box.addWidget(self.exe_lbl)
 
-            change_exe_btn = QPushButton("🎯 Change .exe")
+            change_exe_btn = QPushButton("🎯 Change Target (.exe/.bat)")
+            change_exe_btn.setToolTip("เปลี่ยนไฟล์สำหรับรันเกม เช่น .exe, .bat หรือไฟล์สคริปต์อื่น ๆ")
             change_exe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             change_exe_btn.setStyleSheet(f"""
                 QPushButton {{
@@ -3425,13 +3450,31 @@ class GameDetailDialog(QDialog):
         dlg = ChangeExeDialog(self.game, self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_exe:
             new_exe = dlg.selected_exe
-            self.game["exe_path"] = new_exe
-            self.db.update_game(self.game["id"], exe_path=new_exe)
+            updates = {"exe_path": new_exe}
+            if new_exe.lower().endswith(".lnk"):
+                try:
+                    import win32com.client
+                    shell = win32com.client.Dispatch("WScript.Shell")
+                    sc = shell.CreateShortcut(new_exe)
+                    target_exe, launch_args, work_dir = sc.TargetPath, sc.Arguments, sc.WorkingDirectory
+                    folder = work_dir if work_dir and os.path.exists(work_dir) else os.path.dirname(target_exe)
+                    updates["lnk_path"] = new_exe
+                    updates["launch_args"] = launch_args
+                    if folder:
+                        updates["folder_path"] = folder
+                except Exception:
+                    updates["lnk_path"] = new_exe
+            else:
+                updates["lnk_path"] = None
+                updates["folder_path"] = os.path.dirname(new_exe)
+
+            self.game.update(updates)
+            self.db.update_game(self.game["id"], **updates)
 
             exe_name = os.path.basename(new_exe)
-            self.exe_lbl.setText(f"<b>Executable:</b> <span style='color: {ACCENT_BLUE}; font-family: Consolas, monospace;'>{exe_name}</span> &nbsp;&nbsp;|&nbsp;&nbsp; <b>Plays:</b> {self.game.get('play_count', 0)}")
+            self.exe_lbl.setText(f"<b>Target:</b> <span style='color: {ACCENT_BLUE}; font-family: Consolas, monospace;'>{exe_name}</span> &nbsp;&nbsp;|&nbsp;&nbsp; <b>Plays:</b> {self.game.get('play_count', 0)}")
             self.on_update_callback(self.game["id"])
-            QMessageBox.information(self, "Success", f"Executable updated to:\n{new_exe}")
+            QMessageBox.information(self, "Success", f"Target executable / script updated to:\n{new_exe}")
 
     def open_folder(self):
         folder = self.game.get("folder_path")
@@ -4009,7 +4052,7 @@ class GameCard(QFrame):
         if not is_sw:
             act_refresh_steam = menu.addAction("🔄 Auto-Update from Steam (ใช้ชื่อนี้)")
         act_rename = menu.addAction("✏ Rename Software" if is_sw else "✏ Rename Game")
-        act_change_exe = menu.addAction("🎯 Change Executable (.exe)")
+        act_change_exe = menu.addAction("🎯 Change Target / Executable (.exe, .bat)")
         act_open_dir = menu.addAction("📂 Open Folder" if is_sw else "📂 Open Game Folder")
         menu.addSeparator()
         act_remove = menu.addAction("🗑 Remove from Library")
@@ -4287,8 +4330,8 @@ class MainWindow(QMainWindow):
             }}
         """)
 
-        act_add_g = self.add_menu.addAction("🎮 เพิ่มเกมเดี่ยว (Add Game .exe / .lnk)...")
-        act_add_s = self.add_menu.addAction("💻 เพิ่มโปรแกรมเดี่ยว (Add Software .exe / .lnk)...")
+        act_add_g = self.add_menu.addAction("🎮 เพิ่มเกมเดี่ยว (Add Game .exe / .bat / .lnk)...")
+        act_add_s = self.add_menu.addAction("💻 เพิ่มโปรแกรมเดี่ยว (Add Software .exe / .bat / .lnk)...")
         self.add_menu.addSeparator()
 
         act_scan_folder = self.add_menu.addAction("📁 สแกนโฟลเดอร์หาเกม (Scan Custom Folder)...")
@@ -5282,9 +5325,9 @@ class MainWindow(QMainWindow):
             )
 
     def add_single_item_manually(self, is_software: bool = False):
-        title = "Select Software Executable or Shortcut" if is_software else "Select Game Executable or Shortcut"
+        title = "Select Software Executable / Script" if is_software else "Select Game Executable / Script"
         file_path, _ = QFileDialog.getOpenFileName(
-            self, title, "", "Executables & Shortcuts (*.exe *.lnk);;Executables (*.exe);;Shortcuts (*.lnk);;All Files (*.*)"
+            self, title, "", "All Supported Files (*.exe *.bat *.cmd *.lnk *.url);;Executables (*.exe);;Batch Files (*.bat *.cmd);;Shortcuts (*.lnk);;All Files (*.*)"
         )
         if not file_path:
             return
@@ -5396,8 +5439,8 @@ class MainWindow(QMainWindow):
                     self.db.add_monitored_folder(folder_path)
                 added_items.append(item)
 
-            # Case 2: Direct .exe
-            elif path_obj.suffix.lower() == ".exe":
+            # Case 2: Direct .exe, .bat, .cmd
+            elif path_obj.suffix.lower() in (".exe", ".bat", ".cmd"):
                 folder_path = str(path_obj.parent)
                 folder_name = path_obj.parent.name
                 if is_software_tab:
@@ -5846,40 +5889,62 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, "Steam Error", f"ไม่สามารถเปิดคำสั่งติดตั้ง Steam ได้:\n{e}")
                     return
 
-        # 1. If game was added via shortcut (.lnk) e.g. BlueStacks, launch the shortcut directly
-        lnk_path = game.get("lnk_path")
-        if lnk_path and os.path.exists(lnk_path):
-            try:
-                os.startfile(lnk_path)
-                self.db.record_play(game["id"])
-                return
-            except Exception:
-                pass
-
         exe_path = game.get("exe_path")
+        ext = os.path.splitext(exe_path)[1].lower() if exe_path else ""
+
+        # 1. If game was added via shortcut (.lnk), only launch lnk if exe_path is not an explicit custom script (.bat/.cmd)
+        if ext not in ('.bat', '.cmd'):
+            lnk_path = game.get("lnk_path")
+            if lnk_path and os.path.exists(lnk_path):
+                try:
+                    os.startfile(lnk_path)
+                    self.db.record_play(game["id"])
+                    return
+                except Exception:
+                    pass
+
         if not exe_path or not os.path.exists(exe_path):
             QMessageBox.critical(
-                self, "Error", f"Executable not found:\n{exe_path}\nPlease re-assign executable path."
+                self, "Error", f"Executable / Target not found:\n{exe_path}\nPlease re-assign executable path."
             )
             return
 
         folder = game.get("folder_path") or os.path.dirname(exe_path)
         launch_args = game.get("launch_args", "")
+        ext = os.path.splitext(exe_path)[1].lower()
+
         try:
-            cmd = [exe_path]
-            if launch_args:
-                import shlex
+            if ext in ('.bat', '.cmd'):
+                # Batch scripts: execute with shell=True and working directory set to folder
+                if launch_args:
+                    subprocess.Popen(f'"{exe_path}" {launch_args}', cwd=folder, shell=True)
+                else:
+                    subprocess.Popen(f'"{exe_path}"', cwd=folder, shell=True)
+            elif ext in ('.lnk', '.url'):
+                os.startfile(exe_path)
+            else:
+                cmd = [exe_path]
+                if launch_args:
+                    import shlex
+                    try:
+                        cmd.extend(shlex.split(launch_args))
+                    except Exception:
+                        cmd.append(launch_args)
                 try:
-                    cmd.extend(shlex.split(launch_args))
-                except Exception:
-                    cmd.append(launch_args)
-            subprocess.Popen(cmd, cwd=folder, shell=False)
+                    subprocess.Popen(cmd, cwd=folder, shell=False)
+                except OSError:
+                    # Fallback for non-standard executables, scripts, or associated files
+                    if not launch_args:
+                        os.startfile(exe_path)
+                    else:
+                        subprocess.Popen(f'"{exe_path}" {launch_args}', cwd=folder, shell=True)
+
             self.db.record_play(game["id"])
         except Exception as e:
             QMessageBox.warning(
                 self,
                 "Launch Error",
-                f"Failed to launch game:\n{str(e)}\n\nTry running GameVault as Administrator if the game requires elevated permissions."
+                f"Failed to launch:\n{str(e)}\n\nTry running GameVault as Administrator if the application requires elevated permissions."
             )
 
     def handle_card_action(self, action: str, game: Dict):
@@ -6020,10 +6085,22 @@ class MainWindow(QMainWindow):
             dlg = ChangeExeDialog(game, self)
             if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_exe:
                 new_exe = dlg.selected_exe
-                self.db.update_game(game["id"], exe_path=new_exe)
-                game["exe_path"] = new_exe
+                updates = {"exe_path": new_exe}
+                if new_exe.lower().endswith(".lnk"):
+                    target_exe, launch_args, work_dir = self.resolve_shortcut(new_exe)
+                    folder = work_dir if work_dir and os.path.exists(work_dir) else os.path.dirname(target_exe)
+                    updates["lnk_path"] = new_exe
+                    updates["launch_args"] = launch_args
+                    if folder:
+                        updates["folder_path"] = folder
+                else:
+                    updates["lnk_path"] = None
+                    updates["folder_path"] = os.path.dirname(new_exe)
+
+                game.update(updates)
+                self.db.update_game(game["id"], **updates)
                 self.on_game_updated(game["id"])
-                QMessageBox.information(self, "Updated", f"Executable updated to:\n{new_exe}")
+                QMessageBox.information(self, "Updated", f"Target executable / script updated to:\n{new_exe}")
 
         elif action == "open_dir":
             folder = game.get("folder_path") or os.path.dirname(game["exe_path"])
