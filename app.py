@@ -83,6 +83,7 @@ def is_windows_autostart_enabled() -> bool:
 # Theme Palette (Steam Modern Dark)
 BG_MAIN = "#0e141b"
 BG_PANEL = "#161f2c"
+BG_INPUT = "#161f2c"
 BG_CARD = "#1e293b"
 BG_CARD_HOVER = "#27364b"
 BORDER_DEFAULT = "#2a3a4e"
@@ -1402,7 +1403,7 @@ class SettingsDialog(QDialog):
         self.recent_limit_spin.setFixedWidth(120)
         self.recent_limit_spin.setStyleSheet(f"""
             QSpinBox {{
-                background-color: {BG_INPUT};
+                background-color: {BG_PANEL};
                 color: #f8fafc;
                 border: 1px solid {BORDER_DEFAULT};
                 border-radius: 6px;
@@ -4869,14 +4870,19 @@ class MainWindow(QMainWindow):
             card.apply_theme_colors(colors)
 
     def open_settings(self):
-        dlg = SettingsDialog(self.db, parent=self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.apply_theme_settings()
-            for card in self.card_widgets.values():
-                card.update_badges()
-                card.refresh_cover()
-            self.rearrange_grid()
-            self.rearrange_grid()
+        try:
+            dlg = SettingsDialog(self.db, parent=self)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.apply_theme_settings()
+                for card in self.card_widgets.values():
+                    card.update_badges()
+                    card.refresh_cover()
+                self.rearrange_grid()
+                self.rearrange_grid()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Settings Error", f"เกิดข้อผิดพลาดในการเปิดหน้าต่างการตั้งค่า:\n{e}")
 
     def on_card_size_changed(self, val: int):
         # Quantize to steps of 6 to guarantee high cover cache hits and eliminate micro-jitter
