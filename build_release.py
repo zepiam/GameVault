@@ -1,7 +1,9 @@
 """
 build_release.py - Automated Build & GitHub Release Packaging for GameVault
 Usage:
-    python build_release.py 1.0.0
+    python build_release.py [version] [changelog]
+Example:
+    python build_release.py 1.3.3 "Fix settings crash & improve launcher"
 """
 
 import os
@@ -11,15 +13,29 @@ import zipfile
 import hashlib
 import subprocess
 import shutil
+import re
 from datetime import datetime
+from pathlib import Path
 
 APP_NAME = "GameVault"
 REPO_OWNER = "zepiam"
 REPO_NAME = "GameVault"
 DIST_EXE = os.path.join("dist", f"{APP_NAME}.exe")
+ROOT_EXE = f"{APP_NAME}.exe"
 RELEASE_DIR = "release"
 PATCH_ZIP = os.path.join(RELEASE_DIR, "patch.zip")
 VERSION_FILE = os.path.join(RELEASE_DIR, "version.json")
+
+
+def stop_running_process():
+    print("🛑 กำลังตรวจสอบและปิดโปรเซส GameVault.exe ที่ทำงานอยู่...")
+    try:
+        subprocess.run(
+            ["powershell", "-Command", "Stop-Process -Name GameVault -Force -ErrorAction SilentlyContinue"],
+            check=False
+        )
+    except Exception as e:
+        print(f"⚠️ {e}")
 
 
 def calculate_sha256(filepath: str) -> str:
@@ -37,33 +53,41 @@ def update_current_version_in_code(new_ver: str):
         with open(updater_file, "r", encoding="utf-8") as f:
             content = f.read()
 
-        import re
         updated = re.sub(r'CURRENT_VERSION\s*=\s*"[^"]+"', f'CURRENT_VERSION = "{new_ver}"', content)
         with open(updater_file, "w", encoding="utf-8") as f:
             f.write(updated)
         print(f"✅ อัปเดต CURRENT_VERSION ใน updater.py เป็น {new_ver} เรียบร้อย")
 
 
+def check_syntax():
+    print("🔍 ตรวจสอบความถูกต้องของ Syntax โค้ด...")
+    files = ["app.py", "db.py", "scanner.py", "cover_fetcher.py", "steam_sync.py", "updater.py"]
+    for f in files:
+        if os.path.exists(f):
+            res = subprocess.run([sys.executable, "-m", "py_compile", f], capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"❌ Syntax Error in {f}:\n{res.stderr}")
+                sys.exit(1)
+    print("✅ Syntax ถูกต้องทุกไฟล์")
+
+
 def build_executable():
-    """คอมไพล์โปรแกรม GameVault.exe ผ่าน PyInstaller"""
-    print("🔨 กำลังคอมไพล์โปรแกรมด้วย PyInstaller (อาจใช้เวลาประมาณ 20-30 วินาที)...")
-    cmd = [
-        "pyinstaller",
-        "--noconsole",
-        "--onefile",
-        "--clean",
-        "--name", APP_NAME,
-        "--icon", "icon.ico",
-        "--add-data", "assets;assets",
-        "--add-data", "icon.ico;.",
-        "--add-data", "icon.png;.",
-        "--exclude-module", "PySide6",
-        "app.py"
-    ]
+    """คอมไพล์โปรแกรม GameVault.exe ผ่าน PyInstaller (GameVault.spec)"""
+    print("🔨 กำลังคอมไพล์โปรแกรมด้วย PyInstaller (GameVault.spec --clean)...")
+    spec_file = "GameVault.spec"
+    if not os.path.exists(spec_file):
+        print(f"❌ ไม่พบไฟล์ {spec_file}")
+        sys.exit(1)
+
+    cmd = ["pyinstaller", spec_file, "--clean"]
     result = subprocess.run(cmd)
     if result.returncode != 0:
         print("❌ การคอมไพล์ล้มเหลว!")
         sys.exit(1)
+
+    if os.path.exists(DIST_EXE):
+        shutil.copy2(DIST_EXE, ROOT_EXE)
+        print(f"✅ คัดลอก {DIST_EXE} ไปยัง {ROOT_EXE} เรียบร้อย")
     print("✅ คอมไพล์โปรแกรม GameVault.exe สำเร็จ")
 
 
@@ -75,10 +99,7 @@ def create_patch_zip():
 
     print("📦 กำลังสร้าง patch.zip สำหรับปล่อยอัปเดต...")
     with zipfile.ZipFile(PATCH_ZIP, "w", zipfile.ZIP_DEFLATED) as zf:
-        # ใส่ GameVault.exe
-        zf.write(DIST_EXE, arcname=f"{APP_NAME}.exe")
-
-        # ใส่ assets
+        zf.write(ROOT_EXE, arcname=f"{APP_NAME}.exe")
         assets_dir = "assets"
         if os.path.exists(assets_dir):
             for root, _, files in os.walk(assets_dir):
@@ -116,6 +137,21 @@ def generate_manifest(new_version: str, changelog_text: str):
     print(f"✅ สร้าง manifest {VERSION_FILE} เรียบร้อย (SHA-256: {sha256[:12]}...)")
 
 
+def git_commit_and_push(new_version: str, changelog_text: str):
+    print("📤 กำลัง Git Add, Commit และ Push ขึ้น origin/main...")
+    subprocess.run(["git", "add", "app.py", "db.py", "scanner.py", "cover_fetcher.py",
+                    "steam_sync.py", "updater.py", "GameVault.spec", "build_release.py",
+                    "release_gui.py", "release.bat", ".gitignore"], check=False)
+    
+    msg = f"Bump v{new_version}: {changelog_text.splitlines()[0] if changelog_text else 'Release update'}"
+    subprocess.run(["git", "commit", "-m", msg], check=False)
+    res = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
+    if res.returncode == 0:
+        print("✅ Git Push ขึ้น GitHub สำเร็จเรียบร้อย")
+    else:
+        print(f"⚠️ Git Push: {res.stderr or res.stdout}")
+
+
 def push_github_release(new_version: str, changelog_text: str):
     """สร้าง GitHub Release ผ่าน gh CLI"""
     tag = f"v{new_version}"
@@ -138,34 +174,28 @@ def push_github_release(new_version: str, changelog_text: str):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        new_ver = input("ระบุเวอร์ชันใหม่ที่ต้องการปล่อย (เช่น 1.0.0): ").strip().lstrip("v")
+        new_ver = input("ระบุเวอร์ชันใหม่ที่ต้องการปล่อย (เช่น 1.3.3): ").strip().lstrip("v")
     else:
         new_ver = sys.argv[1].strip().lstrip("v")
 
     if not new_ver:
-        print("❌ ต้องระบุเลขเวอร์ชัน เช่น 1.0.0")
+        print("❌ ต้องระบุเลขเวอร์ชัน เช่น 1.3.3")
         sys.exit(1)
 
-    changelog_input = input("กรอก Changelog บรรทัดเดียว (หรือกด Enter เพื่อใช้ค่าเริ่มต้น): ").strip()
-    if not changelog_input:
-        changelog_input = "- ปรับปรุงประสิทธิภาพและการทำงานทั่วไป\n- อัปเดตระบบค้นหาและจัดการปกเกม"
-
-    # ขั้นตอนที่ 1: อัปเดตเวอร์ชันในโค้ด
-    update_current_version_in_code(new_ver)
-
-    # ขั้นตอนที่ 2: คอมไพล์โปรแกรม
-    build_executable()
-
-    # ขั้นตอนที่ 3: สร้าง Patch ZIP
-    create_patch_zip()
-
-    # ขั้นตอนที่ 4: สร้าง version.json
-    generate_manifest(new_ver, changelog_input)
-
-    # ขั้นตอนที่ 5: ถามว่าจะอัปโหลดขึ้น GitHub เลยหรือไม่
-    choice = input("\nต้องการปล่อย Release ขึ้น GitHub ทันทีเลยหรือไม่? (y/n): ").strip().lower()
-    if choice == 'y':
-        push_github_release(new_ver, changelog_input)
+    if len(sys.argv) >= 3:
+        changelog_input = sys.argv[2].strip()
     else:
-        print(f"\n💡 ไฟล์แพตช์พร้อมอยู่ที่โฟลเดอร์ '{RELEASE_DIR}' คุณสามารถอัปโหลดด้วยคำสั่ง:")
-        print(f"gh release create v{new_ver} {PATCH_ZIP} {VERSION_FILE} --title \"GameVault v{new_ver}\"")
+        changelog_input = input("กรอก Changelog (หรือกด Enter เพื่อใช้ค่าเริ่มต้น): ").strip()
+
+    if not changelog_input:
+        changelog_input = "- ปรับปรุงประสิทธิภาพและการทำงานทั่วไป\n- อัปเดตระบบจัดการและแสดงผลคลังเกม"
+
+    stop_running_process()
+    check_syntax()
+    update_current_version_in_code(new_ver)
+    build_executable()
+    create_patch_zip()
+    generate_manifest(new_ver, changelog_input)
+    git_commit_and_push(new_ver, changelog_input)
+    push_github_release(new_ver, changelog_input)
+    print(f"\n🎉 สำเร็จทุกขั้นตอน! GameVault v{new_ver} พร้อมใช้งานบน GitHub Releases แล้ว")
