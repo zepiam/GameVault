@@ -558,3 +558,70 @@ def check_and_update_installed_steam_games(db) -> int:
                 changed += 1
 
     return changed
+
+
+_launch_options_cache: Dict[int, str] = {}
+_launch_options_cache_time: float = 0.0
+
+def get_all_steam_launch_options(steam_path: Optional[str] = None, force_refresh: bool = False) -> Dict[int, str]:
+    """
+    Extracts {appid: launch_options} from all localconfig.vdf files in Steam userdata.
+    Caches results in memory for 10 seconds to avoid repetitive disk I/O.
+    """
+    global _launch_options_cache, _launch_options_cache_time
+    import time
+
+    now = time.time()
+    if not force_refresh and _launch_options_cache and (now - _launch_options_cache_time < 10.0):
+        return _launch_options_cache
+
+    if not steam_path:
+        steam_path = find_steam_path()
+    if not steam_path or not os.path.isdir(steam_path):
+        return _launch_options_cache
+
+    options_map: Dict[int, str] = {}
+    userdata = os.path.join(steam_path, "userdata")
+    if not os.path.isdir(userdata):
+        return options_map
+
+    try:
+        for uid in os.listdir(userdata):
+            upath = os.path.join(userdata, uid, "config", "localconfig.vdf")
+            if not os.path.exists(upath):
+                continue
+            try:
+                with open(upath, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+
+                for m in re.finditer(r'"LaunchOptions"\s*"((?:\\.|[^"\\])*)"', content):
+                    opts = m.group(1).replace('\\"', '"').strip()
+                    if not opts:
+                        continue
+                    # Find enclosing appid by scanning backwards
+                    sub = content[:m.start()]
+                    app_matches = list(re.finditer(r'"(\d{2,10})"\s*\{', sub))
+                    if app_matches:
+                        nearest_aid = int(app_matches[-1].group(1))
+                        options_map[nearest_aid] = opts
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    _launch_options_cache = options_map
+    _launch_options_cache_time = now
+    return options_map
+
+
+def get_steam_launch_options(appid: int, steam_path: Optional[str] = None) -> Optional[str]:
+    """
+    Returns launch options string configured in Steam for a given appid, or None if none set.
+    """
+    try:
+        aid = int(appid)
+    except (ValueError, TypeError):
+        return None
+    opts_map = get_all_steam_launch_options(steam_path)
+    return opts_map.get(aid)
+

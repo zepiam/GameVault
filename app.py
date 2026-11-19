@@ -2958,6 +2958,7 @@ class GameDetailDialog(QDialog):
         self.is_sw = is_sw
 
         is_installed = bool(self.game.get("is_installed", True))
+        has_steam_appid = bool(self.game.get("appid"))
         if not is_installed:
             play_btn = QPushButton("📥 INSTALL VIA STEAM")
             play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2972,8 +2973,11 @@ class GameDetailDialog(QDialog):
                 }
                 QPushButton:hover { background-color: #0369a1; }
             """)
+            play_btn.clicked.connect(self.launch_game)
+            left_col.addWidget(play_btn)
         else:
-            play_btn = QPushButton("▶ START PROGRAM" if is_sw else "▶ PLAY GAME")
+            btn_text = "♨ PLAY VIA STEAM" if (has_steam_appid and not is_sw) else ("▶ START PROGRAM" if is_sw else "▶ PLAY GAME")
+            play_btn = QPushButton(btn_text)
             play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             play_btn.setFixedHeight(44)
             play_btn.setStyleSheet(f"""
@@ -2986,8 +2990,30 @@ class GameDetailDialog(QDialog):
                 }}
                 QPushButton:hover {{ background-color: {ACCENT_GREEN_HOVER}; }}
             """)
-        play_btn.clicked.connect(self.launch_game)
-        left_col.addWidget(play_btn)
+            play_btn.clicked.connect(self.launch_game)
+            left_col.addWidget(play_btn)
+
+            if has_steam_appid and not is_sw:
+                direct_exe_btn = QPushButton("🎯 Launch .exe Directly")
+                direct_exe_btn.setToolTip("เปิดไฟล์ .exe ตัวเกมตรง ๆ โดยไม่ผ่าน Steam client")
+                direct_exe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                direct_exe_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {BG_PANEL};
+                        border: 1px solid {BORDER_DEFAULT};
+                        color: {TEXT_MUTED};
+                        font-size: 11px;
+                        font-weight: bold;
+                        border-radius: 4px;
+                        padding: 6px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {BG_CARD_HOVER};
+                        color: {TEXT_PRIMARY};
+                    }}
+                """)
+                direct_exe_btn.clicked.connect(self.launch_game_direct)
+                left_col.addWidget(direct_exe_btn)
 
         # Action Buttons
         upload_cover_btn = QPushButton("🖼 Upload Custom Image")
@@ -3124,6 +3150,22 @@ class GameDetailDialog(QDialog):
             status_box.addWidget(self.status_lbl)
             status_box.addStretch()
             meta_lay.addLayout(status_box)
+
+        # Steam Launch Options row if game has appid
+        if self.game.get("appid"):
+            try:
+                import steam_sync
+                steam_opts = steam_sync.get_steam_launch_options(self.game["appid"])
+                if steam_opts:
+                    opt_box = QHBoxLayout()
+                    opt_lbl = QLabel(f"<b>Steam Launch Options:</b> <span style='color: #38bdf8; font-family: Consolas, monospace;'>{steam_opts}</span>")
+                    opt_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
+                    opt_lbl.setWordWrap(True)
+                    opt_box.addWidget(opt_lbl)
+                    opt_box.addStretch()
+                    meta_lay.addLayout(opt_box)
+            except Exception:
+                pass
 
         # Platform Selector Row
         plat_box = QHBoxLayout()
@@ -3291,6 +3333,10 @@ class GameDetailDialog(QDialog):
     def launch_game(self):
         self.accept()
         self.on_play_callback(self.game)
+
+    def launch_game_direct(self):
+        self.accept()
+        self.on_play_callback(self.game, force_direct_exe=True)
 
     def upload_cover(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -3977,11 +4023,20 @@ class GameCard(QFrame):
 
         is_installed = bool(self.game.get("is_installed", True))
         is_sw = bool(self.game.get("is_software") or self.game.get("item_type") == "software" or get_game_platform(self.game) == "software")
+        has_steam_appid = bool(self.game.get("appid"))
+
+        act_play_direct = None
         if not is_installed:
             act_play = menu.addAction("📥 ติดตั้งเกมผ่าน Steam (Install)")
         else:
-            act_play = menu.addAction("▶ เปิดโปรแกรม (Start)" if is_sw else "▶ Play Game")
+            if has_steam_appid and not is_sw:
+                act_play = menu.addAction("▶ Play via Steam (เปิดผ่าน Steam)")
+                act_play_direct = menu.addAction("🎯 Launch .exe Directly (เปิดไฟล์ตรง)")
+            else:
+                act_play = menu.addAction("▶ เปิดโปรแกรม (Start)" if is_sw else "▶ Play Game")
         act_play.triggered.connect(lambda: self.play_requested.emit(self.game))
+        if act_play_direct:
+            act_play_direct.triggered.connect(lambda: self.action_requested.emit("launch_direct_exe", self.game))
         menu.addSeparator()
 
         # Toggle between Game and Software
@@ -4061,6 +4116,8 @@ class GameCard(QFrame):
         action = menu.exec(pos)
         if action == act_play:
             self.play_requested.emit(self.game)
+        elif act_play_direct and action == act_play_direct:
+            self.action_requested.emit("launch_direct_exe", self.game)
         elif action == act_upload_cover:
             self.action_requested.emit("upload_cover", self.game)
         elif action == act_search_cover:
@@ -5883,7 +5940,7 @@ class MainWindow(QMainWindow):
             card.title_label.setText(elided)
         self.update_tab_styles()
 
-    def launch_game(self, game: Dict):
+    def launch_game(self, game: Dict, force_direct_exe: bool = False):
         # 0. If game is not installed (e.g. from Steam library), launch Steam install prompt
         if not bool(game.get("is_installed", True)):
             appid = game.get("appid")
@@ -5899,7 +5956,7 @@ class MainWindow(QMainWindow):
         ext = os.path.splitext(exe_path)[1].lower() if exe_path else ""
 
         # 1. If game was added via shortcut (.lnk), only launch lnk if exe_path is not an explicit custom script (.bat/.cmd)
-        if ext not in ('.bat', '.cmd'):
+        if ext not in ('.bat', '.cmd') and not force_direct_exe:
             lnk_path = game.get("lnk_path")
             if lnk_path and os.path.exists(lnk_path):
                 try:
@@ -5909,6 +5966,25 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+        # 2. Steam Game Launch Handling:
+        # If the game has an appid and is a Steam game:
+        # Unless the user specified a custom script (.bat/.cmd) or explicitly requested force_direct_exe,
+        # launch via Steam protocol: steam://rungameid/<appid>
+        # This guarantees native Steam Launch Options, Steam Overlay, Cloud Sync, and Steam Input!
+        appid = game.get("appid")
+        try:
+            aid_int = int(appid) if appid else None
+        except (ValueError, TypeError):
+            aid_int = None
+
+        if aid_int and ext not in ('.bat', '.cmd') and not force_direct_exe:
+            try:
+                os.startfile(f"steam://rungameid/{aid_int}")
+                self.db.record_play(game["id"])
+                return
+            except Exception as e:
+                print(f"[launch_game] steam://rungameid/{aid_int} failed: {e}, falling back to direct exe")
+
         if not exe_path or not os.path.exists(exe_path):
             QMessageBox.critical(
                 self, "Error", f"Executable / Target not found:\n{exe_path}\nPlease re-assign executable path."
@@ -5917,6 +5993,15 @@ class MainWindow(QMainWindow):
 
         folder = game.get("folder_path") or os.path.dirname(exe_path)
         launch_args = game.get("launch_args", "")
+        # If no custom launch_args in GameVault and it's a Steam game, auto-inject Steam LaunchOptions
+        if not launch_args and aid_int:
+            try:
+                import steam_sync
+                steam_opts = steam_sync.get_steam_launch_options(aid_int)
+                if steam_opts:
+                    launch_args = steam_opts
+            except Exception:
+                pass
         ext = os.path.splitext(exe_path)[1].lower()
 
         try:
@@ -5954,7 +6039,10 @@ class MainWindow(QMainWindow):
             )
 
     def handle_card_action(self, action: str, game: Dict):
-        if action == "toggle_favorite":
+        if action == "launch_direct_exe":
+            self.launch_game(game, force_direct_exe=True)
+
+        elif action == "toggle_favorite":
             new_fav = self.db.toggle_favorite(game["id"])
             game["is_favorite"] = new_fav
             self.on_game_updated(game["id"])
