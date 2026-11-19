@@ -390,6 +390,133 @@ class TrayRecentGameWidget(QWidget):
         super().mouseReleaseEvent(event)
 
 
+class TrayTwoColumnRecentWidget(QWidget):
+    """
+    Two-column Recent Games layout widget for System Tray QMenu:
+    - Left Column: Games/Software in GameVault (Local, Non-Steam, Custom executables/scripts)
+    - Center Vertical Divider
+    - Right Column: Games from Steam Library
+    """
+    def __init__(self, gv_items: List[Dict], steam_items: List[Dict], on_launch_callback=None, parent_menu=None):
+        super().__init__(parent_menu)
+        self.on_launch = on_launch_callback
+        self.parent_menu = parent_menu
+
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(6, 4, 6, 4)
+        main_layout.setSpacing(8)
+
+        # Left Column: GameVault items
+        col_gv = self._build_column(
+            title="📁  เกมใน GameVault",
+            count_str=f"{len(gv_items)}",
+            items=gv_items
+        )
+        main_layout.addWidget(col_gv, 1)
+
+        # Center Vertical Divider
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet("background-color: #1e293b; max-width: 1px; min-width: 1px; border: none;")
+        main_layout.addWidget(sep)
+
+        # Right Column: Steam items
+        col_steam = self._build_column(
+            title="♨  เกมจาก Steam",
+            count_str=f"{len(steam_items)}",
+            items=steam_items
+        )
+        main_layout.addWidget(col_steam, 1)
+
+    def _build_column(self, title: str, count_str: str, items: List[Dict]) -> QWidget:
+        container = QWidget()
+        container.setMinimumWidth(230)
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+
+        # Column Header bar
+        hdr = QWidget()
+        hdr.setStyleSheet("background-color: #080c14; border-radius: 5px; border: 1px solid #1e293b;")
+        hdr_lay = QHBoxLayout(hdr)
+        hdr_lay.setContentsMargins(8, 6, 8, 6)
+
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet("color: #38bdf8; font-size: 12px; font-weight: bold;")
+        hdr_lay.addWidget(lbl_title)
+
+        lbl_sub = QLabel(f"({count_str})")
+        lbl_sub.setStyleSheet("color: #64748b; font-size: 11px;")
+        hdr_lay.addWidget(lbl_sub)
+        hdr_lay.addStretch()
+
+        lay.addWidget(hdr)
+
+        if not items:
+            empty_lbl = QLabel("ไม่มีรายการล่าสุด")
+            empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty_lbl.setStyleSheet("color: #64748b; font-size: 11.5px; padding: 22px 0; font-style: italic;")
+            lay.addWidget(empty_lbl)
+        else:
+            for g in items:
+                row = self._build_item_row(g)
+                lay.addWidget(row)
+
+        lay.addStretch()
+        return container
+
+    def _build_item_row(self, game: Dict) -> QWidget:
+        row = QWidget()
+        row.setFixedHeight(34)
+        row.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.setAttribute(Qt.WidgetAttribute.WA_Hover)
+
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(6, 2, 6, 2)
+        lay.setSpacing(10)
+
+        # 4:3 Cover thumbnail (40x30)
+        cover_p = game.get("cover_path")
+        thumb_pix = get_tray_cover_thumbnail(cover_p, width=40, height=30)
+        img_lbl = QLabel()
+        img_lbl.setFixedSize(40, 30)
+        img_lbl.setPixmap(thumb_pix)
+        img_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        lay.addWidget(img_lbl)
+
+        # Game title
+        name = game.get("name", "Unknown")
+        disp_name = (name[:20] + "..") if len(name) > 22 else name
+        title_lbl = QLabel(disp_name)
+        title_lbl.setStyleSheet("color: #f1f5f9; font-size: 12.5px; font-weight: 500;")
+        title_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        lay.addWidget(title_lbl, 1)
+
+        def enterEvent(event):
+            row.setStyleSheet("background-color: #1e293b; border-radius: 4px;")
+            title_lbl.setStyleSheet("color: #38bdf8; font-size: 12.5px; font-weight: 600;")
+        def leaveEvent(event):
+            row.setStyleSheet("background-color: transparent; border-radius: 4px;")
+            title_lbl.setStyleSheet("color: #f1f5f9; font-size: 12.5px; font-weight: 500;")
+        def mouseReleaseEvent(event):
+            if event.button() == Qt.MouseButton.LeftButton:
+                if self.parent_menu:
+                    self.parent_menu.close()
+                else:
+                    p = self.parent()
+                    while p and not isinstance(p, QMenu):
+                        p = p.parent()
+                    if p:
+                        p.close()
+                if self.on_launch:
+                    self.on_launch(game)
+
+        row.enterEvent = enterEvent
+        row.leaveEvent = leaveEvent
+        row.mouseReleaseEvent = mouseReleaseEvent
+        return row
+
+
 def get_game_platform(game: Dict) -> str:
     """
     Detects the gaming platform / source of a game based on paths, executable, and shortcut.
@@ -1387,6 +1514,17 @@ class SettingsDialog(QDialog):
         self.tray_include_sw_cb.setChecked(tray_inc_sw)
         tray_sw_box.addWidget(self.tray_include_sw_cb)
 
+        # Tray Two-Column Layout Checkbox
+        self.tray_two_col_cb = QCheckBox("แยกแสดง Recent Games เป็น 2 คอลัมน์ (คอลัมน์ GameVault / คอลัมน์ Steam)")
+        tray_two_col_val = self.db.get_setting("tray_two_column_layout", False) if self.db else False
+        self.tray_two_col_cb.setChecked(tray_two_col_val)
+        tray_sw_box.addWidget(self.tray_two_col_cb)
+
+        tray_two_col_hint = QLabel("เมื่อเปิดใช้งาน: เมนูคลิกขวาที่ไอคอนถาดงานจะแสดงรายการเล่นล่าสุดแยกเป็น 2 ฝั่งซ้าย-ขวา ระหว่างเกมที่เพิ่มใน GameVault และเกมจากคลัง Steam")
+        tray_two_col_hint.setWordWrap(True)
+        tray_two_col_hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; padding-left: 28px; margin-bottom: 4px;")
+        tray_sw_box.addWidget(tray_two_col_hint)
+
         # Recent items count spinbox
         recent_limit_row = QHBoxLayout()
         recent_limit_row.setContentsMargins(0, 4, 0, 0)
@@ -2012,6 +2150,8 @@ class SettingsDialog(QDialog):
             sw_mode = "cover" if self.radio_cover.isChecked() else "icon"
             self.db.set_setting("software_display_mode", sw_mode)
             self.db.set_setting("tray_include_software", self.tray_include_sw_cb.isChecked())
+            if hasattr(self, 'tray_two_col_cb'):
+                self.db.set_setting("tray_two_column_layout", self.tray_two_col_cb.isChecked())
             if hasattr(self, 'recent_limit_spin'):
                 self.db.set_setting("recent_games_limit", self.recent_limit_spin.value())
             self.db.set_setting("auto_check_updates", self.auto_update_cb.isChecked())
@@ -4243,6 +4383,12 @@ class MainWindow(QMainWindow):
         self.size_timer.setInterval(20)
         self.size_timer.timeout.connect(self._apply_card_size_debounced)
 
+        # Debounce timer for window resizing (eliminates layout stutter and multi-timer lag during drag)
+        self.resize_debounce_timer = QtCore.QTimer(self)
+        self.resize_debounce_timer.setSingleShot(True)
+        self.resize_debounce_timer.setInterval(45)
+        self.resize_debounce_timer.timeout.connect(lambda: self.rearrange_grid(update_tabs=False))
+
         self.setup_ui()
         self.apply_theme_settings()
         self.setup_system_tray()
@@ -5659,7 +5805,21 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        QtCore.QTimer.singleShot(60, self.rearrange_grid)
+        # Fast path: dynamically center the current grid margins instantly with zero lag
+        viewport_w = self.scroll_area.viewport().width()
+        spacing = 14
+        base_size = max(120, getattr(self, "card_size", 185))
+        usable_w = max(280, viewport_w - 20)
+        cols = max(1, (usable_w + spacing) // (base_size + spacing))
+
+        last_cols = getattr(self, "_last_rendered_columns", None)
+        if last_cols == cols and self.grid_layout.count() > 0:
+            total_grid_w = cols * base_size + (cols - 1) * spacing
+            side_margin = max(4, (viewport_w - total_grid_w) // 2)
+            self.grid_layout.setContentsMargins(side_margin, 6, side_margin, 16)
+        else:
+            # Column count boundary crossed or initial layout: debounce re-pack slightly (45ms)
+            self.resize_debounce_timer.start(45)
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -5674,6 +5834,34 @@ class MainWindow(QMainWindow):
         filtered_games = self.get_filtered_games()
         filter_text = self.search_input.text().strip().lower()
 
+        # ---------------- Responsive Dynamic Grid Calculation ----------------
+        viewport_w = self.scroll_area.viewport().width()
+        spacing = 14
+        base_size = max(120, self.card_size)
+        usable_w = max(280, viewport_w - 20)
+        columns = max(1, (usable_w + spacing) // (base_size + spacing))
+        effective_card_width = base_size
+
+        total_grid_w = columns * effective_card_width + (columns - 1) * spacing
+        side_margin = max(4, (viewport_w - total_grid_w) // 2)
+        self.grid_layout.setContentsMargins(side_margin, 6, side_margin, 16)
+
+        # Fast path: if column count, category, filter text, and card size haven't changed,
+        # cards are already in exact positions and only margins needed updating!
+        last_cols = getattr(self, "_last_rendered_columns", None)
+        last_cat = getattr(self, "_last_rendered_category", None)
+        last_filter = getattr(self, "_last_rendered_filter", None)
+        last_size = getattr(self, "_last_rendered_card_size", None)
+        last_count = getattr(self, "_last_rendered_count", None)
+
+        if (last_cols == columns and
+            last_cat == self.current_filter_category and
+            last_filter == filter_text and
+            last_size == base_size and
+            last_count == len(filtered_games) and
+            self.grid_layout.count() > 0):
+            return
+
         # Disable container updates while altering layout to eliminate UI stutter and repaint lag
         self.grid_container.setUpdatesEnabled(False)
         try:
@@ -5686,35 +5874,6 @@ class MainWindow(QMainWindow):
                         w.deleteLater()
                     else:
                         w.setVisible(False)
-
-            # ---------------- Responsive Dynamic Grid Calculation ----------------
-            viewport_w = self.scroll_area.viewport().width()
-            spacing = 14
-            base_size = max(120, self.card_size)
-
-            # Usable width for cards and spacing (leaving margin for scrollbar)
-            usable_w = max(280, viewport_w - 20)
-
-            # Calculate standard columns that fit
-            cols_floor = max(1, (usable_w + spacing) // (base_size + spacing))
-            cols_ceil = cols_floor + 1
-
-            # Check if an extra column can fit smoothly without cards getting too small (>= 82% of base_size)
-            width_if_ceil = (usable_w - (cols_ceil - 1) * spacing) // cols_ceil
-            if cols_ceil > 1 and width_if_ceil >= max(135, int(base_size * 0.82)):
-                columns = cols_ceil
-                effective_card_width = width_if_ceil
-            else:
-                columns = cols_floor
-                effective_card_width = (usable_w - (cols_floor - 1) * spacing) // cols_floor
-
-            # Keep effective_card_width within a sane range relative to base size
-            effective_card_width = max(120, min(effective_card_width, int(base_size * 1.35)))
-
-            # Center the grid perfectly: calculate symmetric left and right margins
-            total_grid_w = columns * effective_card_width + (columns - 1) * spacing
-            side_margin = max(4, (viewport_w - total_grid_w) // 2)
-            self.grid_layout.setContentsMargins(side_margin, 6, side_margin, 16)
 
             # Separate into installed and uninstalled lists
             installed_list = []
@@ -5760,7 +5919,7 @@ class MainWindow(QMainWindow):
                     card.action_requested.connect(self.handle_card_action)
                     self.card_widgets[game["id"]] = card
                 else:
-                    if abs(card.card_width - effective_card_width) >= 3:
+                    if card.card_width != effective_card_width:
                         card.set_card_size(effective_card_width)
 
                 r = current_row + (idx // columns)
@@ -5797,7 +5956,7 @@ class MainWindow(QMainWindow):
                             card.action_requested.connect(self.handle_card_action)
                             self.card_widgets[game["id"]] = card
                         else:
-                            if abs(card.card_width - effective_card_width) >= 3:
+                            if card.card_width != effective_card_width:
                                 card.set_card_size(effective_card_width)
 
                         r = current_row + (idx // columns)
@@ -5867,6 +6026,12 @@ class MainWindow(QMainWindow):
                     and bool(g.get("is_installed", True))
                 ]
                 self.count_badge.setText(f"{visible_count} / {len(valid_games)} Games")
+
+            self._last_rendered_columns = columns
+            self._last_rendered_category = self.current_filter_category
+            self._last_rendered_filter = filter_text
+            self._last_rendered_card_size = base_size
+            self._last_rendered_count = len(filtered_games)
         finally:
             self.grid_container.setUpdatesEnabled(True)
 
@@ -6296,32 +6461,47 @@ class MainWindow(QMainWindow):
 
         include_software = self.db.get_setting("tray_include_software", False) if self.db else False
         limit = self.db.get_setting("recent_games_limit", 10) if self.db else 10
-        recent_items = self.db.get_recently_played_games(limit=limit, include_software=include_software)
-        if recent_items:
-            hdr_text = "🎮  รายการล่าสุด (RECENT GAMES & SOFTWARE)" if include_software else "🎮  เกมล่าสุด (RECENT GAMES)"
-            hdr_act = QWidgetAction(self.tray_menu)
-            hdr_act.setDefaultWidget(TrayHeaderWidget(hdr_text, self.tray_menu))
-            self.tray_menu.addAction(hdr_act)
+        two_column_mode = self.db.get_setting("tray_two_column_layout", False) if self.db else False
 
-            for g in recent_items:
-                name = g.get("name", "Unknown")
-                disp_name = (name[:26] + "..") if len(name) > 28 else name
-                cover_p = g.get("cover_path")
-                thumb_pix = get_tray_cover_thumbnail(cover_p, width=40, height=30)
+        if two_column_mode:
+            gv_items, steam_items = self.db.get_recently_played_two_columns(limit=limit, include_software=include_software)
+            if gv_items or steam_items:
+                two_col_act = QWidgetAction(self.tray_menu)
+                two_col_act.setDefaultWidget(TrayTwoColumnRecentWidget(
+                    gv_items=gv_items,
+                    steam_items=steam_items,
+                    on_launch_callback=self.launch_game,
+                    parent_menu=self.tray_menu
+                ))
+                self.tray_menu.addAction(two_col_act)
+                self.tray_menu.addSeparator()
+        else:
+            recent_items = self.db.get_recently_played_games(limit=limit, include_software=include_software)
+            if recent_items:
+                hdr_text = "🎮  รายการล่าสุด (RECENT GAMES & SOFTWARE)" if include_software else "🎮  เกมล่าสุด (RECENT GAMES)"
+                hdr_act = QWidgetAction(self.tray_menu)
+                hdr_act.setDefaultWidget(TrayHeaderWidget(hdr_text, self.tray_menu))
+                self.tray_menu.addAction(hdr_act)
 
-                act = QWidgetAction(self.tray_menu)
-                act_widget = TrayRecentGameWidget(
-                    cover_pixmap=thumb_pix,
-                    title=disp_name,
-                    action=act,
-                    on_click=lambda game=g: self.launch_game(game),
-                    parent=self.tray_menu
-                )
-                act.setDefaultWidget(act_widget)
-                act.triggered.connect(lambda _, game=g: self.launch_game(game))
-                self.tray_menu.addAction(act)
+                for g in recent_items:
+                    name = g.get("name", "Unknown")
+                    disp_name = (name[:26] + "..") if len(name) > 28 else name
+                    cover_p = g.get("cover_path")
+                    thumb_pix = get_tray_cover_thumbnail(cover_p, width=40, height=30)
 
-            self.tray_menu.addSeparator()
+                    act = QWidgetAction(self.tray_menu)
+                    act_widget = TrayRecentGameWidget(
+                        cover_pixmap=thumb_pix,
+                        title=disp_name,
+                        action=act,
+                        on_click=lambda game=g: self.launch_game(game),
+                        parent=self.tray_menu
+                    )
+                    act.setDefaultWidget(act_widget)
+                    act.triggered.connect(lambda _, game=g: self.launch_game(game))
+                    self.tray_menu.addAction(act)
+
+                self.tray_menu.addSeparator()
 
         # Section 2: Window Controls (Clean left-aligned with elegant padding)
         act_library = self.tray_menu.addAction("📂  เปิดคลัง GameVault (Library)")

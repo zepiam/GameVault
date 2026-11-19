@@ -7,7 +7,7 @@ import os
 import json
 import uuid
 import time
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 
 class LibraryDB:
@@ -215,6 +215,48 @@ class LibraryDB:
             if len(res) >= limit:
                 break
         return res
+
+    def get_recently_played_two_columns(self, limit: int = 8, include_software: bool = False) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Returns (gamevault_items, steam_items) for 2-column Recent Games in System Tray.
+        - Column 1: Items added to GameVault (Local, standalone, emulator, software)
+        - Column 2: Items from Steam Library
+        """
+        pool = self.games if include_software else [
+            g for g in self.games if not (g.get("is_software") or g.get("item_type") == "software")
+        ]
+        hide_demos = bool(self.get_setting("hide_steam_demos", False))
+        if hide_demos:
+            import re
+            pool = [g for g in pool if not (g.get("source") == "steam" and re.search(r"\bdemo\b", g.get("name", ""), re.IGNORECASE))]
+
+        def is_steam(g: Dict) -> bool:
+            return bool(g.get("source") == "steam" or g.get("appid") or (g.get("platform") == "steam"))
+
+        gv_pool = [g for g in pool if not is_steam(g) and bool(g.get("is_installed", True))]
+        steam_pool = [g for g in pool if is_steam(g) and bool(g.get("is_installed", True))]
+
+        def sort_and_fill(sub_pool: List[Dict]) -> List[Dict]:
+            played = [g for g in sub_pool if g.get("last_played") and g.get("last_played", 0) > 0]
+            played.sort(key=lambda x: x.get("last_played", 0), reverse=True)
+            if len(played) >= limit:
+                return played[:limit]
+            res = list(played)
+            seen_ids = {g["id"] for g in res}
+            favorites = [g for g in sub_pool if g.get("is_favorite") and g["id"] not in seen_ids]
+            for f in favorites:
+                res.append(f)
+                seen_ids.add(f["id"])
+                if len(res) >= limit:
+                    return res[:limit]
+            others = [g for g in sub_pool if g["id"] not in seen_ids]
+            for o in others:
+                res.append(o)
+                if len(res) >= limit:
+                    break
+            return res
+
+        return sort_and_fill(gv_pool), sort_and_fill(steam_pool)
 
     def record_play(self, game_id: str):
         game = self.get_game(game_id)
