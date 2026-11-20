@@ -173,6 +173,43 @@ def get_executable_icon(target_path: str, lnk_path: str = "", target_size: int =
     return pix
 
 
+_PLATFORM_ICON_CACHE: Dict[str, QIcon] = {}
+_PLATFORM_PIXMAP_CACHE: Dict[str, QPixmap] = {}
+
+def get_platform_icon(platform: str) -> QIcon:
+    """Returns a cached QIcon for the given platform (steam, epic, gog, ubisoft, ea, bluestacks/android)."""
+    p_key = "android" if platform.lower() == "bluestacks" else platform.lower()
+    if p_key in _PLATFORM_ICON_CACHE:
+        return _PLATFORM_ICON_CACHE[p_key]
+
+    icon_path = get_asset_path(os.path.join("assets", "icons", f"{p_key}.png"))
+    if os.path.exists(icon_path):
+        icon = QIcon(icon_path)
+    else:
+        icon = QIcon()
+    _PLATFORM_ICON_CACHE[p_key] = icon
+    return icon
+
+def get_platform_pixmap(platform: str, width: int = 16, height: int = 16) -> QPixmap:
+    """Returns a scaled QPixmap for UI labels/headers for the given platform."""
+    p_key = "android" if platform.lower() == "bluestacks" else platform.lower()
+    cache_key = f"{p_key}_{width}x{height}"
+    if cache_key in _PLATFORM_PIXMAP_CACHE:
+        return _PLATFORM_PIXMAP_CACHE[cache_key]
+
+    icon_path = get_asset_path(os.path.join("assets", "icons", f"{p_key}.png"))
+    if os.path.exists(icon_path):
+        pix = QPixmap(icon_path).scaled(
+            width, height,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+    else:
+        pix = QPixmap()
+    _PLATFORM_PIXMAP_CACHE[cache_key] = pix
+    return pix
+
+
 _COVER_CACHE: Dict[str, QPixmap] = {}
 _RAW_COVER_CACHE: Dict[str, QPixmap] = {}
 
@@ -415,9 +452,10 @@ class TrayTwoColumnRecentWidget(QWidget):
 
         # Left Column: GameVault items
         col_gv = self._build_column(
-            title="📁  GameVault Library",
+            title="GameVault Library",
             count_str=f"{len(gv_items)}",
-            items=gv_items
+            items=gv_items,
+            icon_kind="folder"
         )
         main_layout.addWidget(col_gv, 1)
 
@@ -429,13 +467,14 @@ class TrayTwoColumnRecentWidget(QWidget):
 
         # Right Column: Steam items
         col_steam = self._build_column(
-            title="♨  Steam Library",
+            title="Steam Library",
             count_str=f"{len(steam_items)}",
-            items=steam_items
+            items=steam_items,
+            icon_kind="steam"
         )
         main_layout.addWidget(col_steam, 1)
 
-    def _build_column(self, title: str, count_str: str, items: List[Dict]) -> QWidget:
+    def _build_column(self, title: str, count_str: str, items: List[Dict], icon_kind: str = "folder") -> QWidget:
         container = QWidget()
         container.setMinimumWidth(230)
         lay = QVBoxLayout(container)
@@ -447,6 +486,20 @@ class TrayTwoColumnRecentWidget(QWidget):
         hdr.setStyleSheet("background-color: #080c14; border-radius: 5px; border: 1px solid #1e293b;")
         hdr_lay = QHBoxLayout(hdr)
         hdr_lay.setContentsMargins(8, 6, 8, 6)
+        hdr_lay.setSpacing(6)
+
+        if icon_kind == "steam":
+            pix = get_platform_pixmap("steam", 16, 16)
+            if not pix.isNull():
+                lbl_icon = QLabel()
+                lbl_icon.setPixmap(pix)
+                lbl_icon.setFixedSize(16, 16)
+                lbl_icon.setScaledContents(True)
+                hdr_lay.addWidget(lbl_icon)
+        elif icon_kind == "folder":
+            lbl_icon = QLabel("📁")
+            lbl_icon.setStyleSheet("font-size: 13px;")
+            hdr_lay.addWidget(lbl_icon)
 
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet("color: #38bdf8; font-size: 12px; font-weight: bold;")
@@ -610,75 +663,75 @@ def is_game_demo_or_playtest(game: Dict) -> bool:
 
 PLATFORM_META = {
     "software": {
-        "label": "💻 SOFTWARE",
+        "label": "SOFTWARE",
         "bg": "#1e1b4b",
         "border": "#4338ca",
         "text": "#818cf8",
         "glow": "#6366f1",
-        "tab_name": "💻 Software",
+        "tab_name": "Software",
         "tip": "โปรแกรมและซอฟต์แวร์ (Application / Tool)"
     },
     "steam": {
-        "label": "♨ STEAM",
+        "label": "STEAM",
         "bg": "#0c2738",
         "border": "#1e608f",
         "text": "#38bdf8",
         "glow": "#1e5a84",
-        "tab_name": "♨ Steam",
+        "tab_name": "Steam",
         "tip": "เกมจาก Steam Library"
     },
     "epic": {
-        "label": "⚡ EPIC",
+        "label": "EPIC",
         "bg": "#18181b",
         "border": "#3f3f46",
         "text": "#facc15",
         "glow": "#ca8a04",
-        "tab_name": "⚡ Epic Games",
+        "tab_name": "Epic Games",
         "tip": "เกมจาก Epic Games Store"
     },
     "ubisoft": {
-        "label": "🌀 UBISOFT",
+        "label": "UBISOFT",
         "bg": "#0f172a",
         "border": "#2563eb",
         "text": "#60a5fa",
         "glow": "#3b82f6",
-        "tab_name": "🌀 Ubisoft",
+        "tab_name": "Ubisoft",
         "tip": "เกมจาก Ubisoft Connect"
     },
     "gog": {
-        "label": "👾 GOG",
+        "label": "GOG",
         "bg": "#2e1065",
         "border": "#7c3aed",
         "text": "#c084fc",
         "glow": "#9333ea",
-        "tab_name": "👾 GOG Galaxy",
+        "tab_name": "GOG Galaxy",
         "tip": "เกมจาก GOG Galaxy"
     },
     "ea": {
-        "label": "🎯 EA",
+        "label": "EA",
         "bg": "#2a0808",
         "border": "#dc2626",
         "text": "#f87171",
         "glow": "#ef4444",
-        "tab_name": "🎯 EA App",
+        "tab_name": "EA App",
         "tip": "เกมจาก EA App / Origin"
     },
     "bluestacks": {
-        "label": "📱 ANDROID",
+        "label": "ANDROID",
         "bg": "#064e3b",
         "border": "#059669",
         "text": "#34d399",
         "glow": "#10b981",
-        "tab_name": "📱 Android",
+        "tab_name": "Android",
         "tip": "เกม Android (BlueStacks)"
     },
     "local": {
-        "label": "📁 LOCAL",
+        "label": "LOCAL",
         "bg": "#1a222d",
         "border": "#2e3d4f",
         "text": "#94a3b8",
         "glow": None,
-        "tab_name": "📁 Non-Steam",
+        "tab_name": "Non-Steam",
         "tip": "เกมทั่วไป (Local / Portable)"
     }
 }
@@ -1579,14 +1632,16 @@ class SettingsDialog(QDialog):
         # Steam Library Synchronization Section
         steam_sec_box = QVBoxLayout()
         steam_sec_box.setSpacing(10)
-        steam_sec_title = QLabel("♨ การเชื่อมต่อและซิงค์คลัง Steam (Steam Synchronization):")
+        steam_sec_title = QLabel("การเชื่อมต่อและซิงค์คลัง Steam (Steam Synchronization):")
         steam_sec_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #f8fafc;")
         steam_sec_box.addWidget(steam_sec_title)
 
         steam_sync_row = QHBoxLayout()
         steam_sync_row.setSpacing(14)
 
-        sync_btn_settings = QPushButton("♨ ซิงค์คลัง Steam เดี๋ยวนี้ (Sync Steam)")
+        sync_btn_settings = QPushButton("ซิงค์คลัง Steam เดี๋ยวนี้ (Sync Steam)")
+        sync_btn_settings.setIcon(get_platform_icon("steam"))
+        sync_btn_settings.setIconSize(QtCore.QSize(16, 16))
         sync_btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         sync_btn_settings.setStyleSheet("""
             QPushButton {
@@ -1611,7 +1666,7 @@ class SettingsDialog(QDialog):
         steam_sync_row.addWidget(steam_sync_hint, 1)
         steam_sec_box.addLayout(steam_sync_row)
 
-        self.show_steam_btn_cb = QCheckBox("แสดงปุ่ม '♨ Sync Steam' บนแถบเครื่องมือหลัก (Show button on main toolbar)")
+        self.show_steam_btn_cb = QCheckBox("แสดงปุ่ม 'Sync Steam' บนแถบเครื่องมือหลัก (Show button on main toolbar)")
         saved_show_btn = self.db.get_setting("show_steam_sync_btn", None) if self.db else None
         if saved_show_btn is None:
             has_synced = self.db.get_setting("steam_synced", False) if self.db else False
@@ -3124,8 +3179,13 @@ class GameDetailDialog(QDialog):
             play_btn.clicked.connect(self.launch_game)
             left_col.addWidget(play_btn)
         else:
-            btn_text = "♨ PLAY VIA STEAM" if (is_steam and has_steam_appid and not is_sw) else ("▶ START PROGRAM" if is_sw else "▶ PLAY GAME")
-            play_btn = QPushButton(btn_text)
+            if is_steam and has_steam_appid and not is_sw:
+                play_btn = QPushButton("PLAY VIA STEAM")
+                play_btn.setIcon(get_platform_icon("steam"))
+                play_btn.setIconSize(QtCore.QSize(18, 18))
+            else:
+                btn_text = "▶ START PROGRAM" if is_sw else "▶ PLAY GAME"
+                play_btn = QPushButton(btn_text)
             play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             play_btn.setFixedHeight(44)
             play_btn.setStyleSheet(f"""
@@ -3339,12 +3399,12 @@ class GameDetailDialog(QDialog):
             }}
         """)
         self.plat_combo.addItem("🔄 Auto-detect (ตรวจจับอัตโนมัติ)", "auto")
-        self.plat_combo.addItem("♨ Steam", "steam")
-        self.plat_combo.addItem("⚡ Epic Games", "epic")
-        self.plat_combo.addItem("🌀 Ubisoft", "ubisoft")
-        self.plat_combo.addItem("👾 GOG Galaxy", "gog")
-        self.plat_combo.addItem("🎯 EA App", "ea")
-        self.plat_combo.addItem("📱 Android (BlueStacks)", "bluestacks")
+        self.plat_combo.addItem(get_platform_icon("steam"), "Steam", "steam")
+        self.plat_combo.addItem(get_platform_icon("epic"), "Epic Games", "epic")
+        self.plat_combo.addItem(get_platform_icon("ubisoft"), "Ubisoft", "ubisoft")
+        self.plat_combo.addItem(get_platform_icon("gog"), "GOG Galaxy", "gog")
+        self.plat_combo.addItem(get_platform_icon("ea"), "EA App", "ea")
+        self.plat_combo.addItem(get_platform_icon("android"), "Android (BlueStacks)", "bluestacks")
         self.plat_combo.addItem("📁 Local / Standalone PC", "local")
 
         curr_p = self.game.get("platform") or "auto"
@@ -3971,7 +4031,12 @@ class GameCard(QFrame):
                 self.source_badge.setVisible(True)
                 platform = get_game_platform(self.game)
                 meta = PLATFORM_META.get(platform, PLATFORM_META["local"])
-                self.source_badge.setText(meta["label"])
+                icon_path = get_asset_path(os.path.join("assets", "icons", f"{('android' if platform == 'bluestacks' else platform)}.png"))
+                if os.path.exists(icon_path):
+                    clean_path = icon_path.replace("\\", "/")
+                    self.source_badge.setText(f"<img src='{clean_path}' width='10' height='10'>  {meta['label']}")
+                else:
+                    self.source_badge.setText(meta["label"])
                 self.source_badge.setStyleSheet(f"""
                     background-color: {meta['bg']};
                     color: {meta['text']};
@@ -4234,12 +4299,12 @@ class GameCard(QFrame):
 
         platform_options = [
             ("auto", "🔄 Auto-detect (ตรวจจับอัตโนมัติ)"),
-            ("steam", "♨ Steam"),
-            ("epic", "⚡ Epic Games"),
-            ("ubisoft", "🌀 Ubisoft"),
-            ("gog", "👾 GOG Galaxy"),
-            ("ea", "🎯 EA App"),
-            ("bluestacks", "📱 Android (BlueStacks)"),
+            ("steam", "Steam"),
+            ("epic", "Epic Games"),
+            ("ubisoft", "Ubisoft"),
+            ("gog", "GOG Galaxy"),
+            ("ea", "EA App"),
+            ("bluestacks", "Android (BlueStacks)"),
             ("local", "📁 Local / Standalone PC"),
         ]
         for p_id, p_label in platform_options:
@@ -4248,7 +4313,8 @@ class GameCard(QFrame):
             else:
                 is_active = (manual_override == p_id) if manual_override else (curr_plat == p_id)
             prefix = "✔ " if is_active else "   "
-            p_act = plat_menu.addAction(f"{prefix}{p_label}")
+            ico = get_platform_icon(p_id) if p_id in ("steam", "epic", "ubisoft", "gog", "ea", "bluestacks") else QIcon()
+            p_act = plat_menu.addAction(ico, f"{prefix}{p_label}")
             p_act.triggered.connect(lambda _, pid=p_id: self.action_requested.emit(f"set_platform:{pid}", self.game))
 
         menu.addSeparator()
@@ -4563,7 +4629,7 @@ class MainWindow(QMainWindow):
         act_check_new.triggered.connect(lambda: self.start_monitored_scan(silent=False))
 
         self.add_menu.addSeparator()
-        act_steam_sync = self.add_menu.addAction("♨ ซิงค์คลัง Steam (Sync Steam Library)...")
+        act_steam_sync = self.add_menu.addAction(get_platform_icon("steam"), "ซิงค์คลัง Steam (Sync Steam Library)...")
         act_steam_sync.triggered.connect(self.start_steam_sync)
 
         act_add_g.triggered.connect(lambda: self.add_single_item_manually(is_software=False))
@@ -4736,12 +4802,30 @@ class MainWindow(QMainWindow):
         self.tab_all_btn = QPushButton("🎮 All Games")
         self.tab_fav_btn = QPushButton("⭐ Favorites")
         self.tab_software_btn = QPushButton("💻 Software")
-        self.tab_steam_btn = QPushButton("♨ Steam")
-        self.tab_epic_btn = QPushButton("⚡ Epic")
-        self.tab_ubisoft_btn = QPushButton("🌀 Ubisoft")
-        self.tab_gog_btn = QPushButton("👾 GOG")
-        self.tab_ea_btn = QPushButton("🎯 EA")
-        self.tab_bluestacks_btn = QPushButton("📱 Android")
+        self.tab_steam_btn = QPushButton("Steam")
+        self.tab_steam_btn.setIcon(get_platform_icon("steam"))
+        self.tab_steam_btn.setIconSize(QtCore.QSize(16, 16))
+
+        self.tab_epic_btn = QPushButton("Epic")
+        self.tab_epic_btn.setIcon(get_platform_icon("epic"))
+        self.tab_epic_btn.setIconSize(QtCore.QSize(16, 16))
+
+        self.tab_ubisoft_btn = QPushButton("Ubisoft")
+        self.tab_ubisoft_btn.setIcon(get_platform_icon("ubisoft"))
+        self.tab_ubisoft_btn.setIconSize(QtCore.QSize(16, 16))
+
+        self.tab_gog_btn = QPushButton("GOG")
+        self.tab_gog_btn.setIcon(get_platform_icon("gog"))
+        self.tab_gog_btn.setIconSize(QtCore.QSize(16, 16))
+
+        self.tab_ea_btn = QPushButton("EA")
+        self.tab_ea_btn.setIcon(get_platform_icon("ea"))
+        self.tab_ea_btn.setIconSize(QtCore.QSize(16, 16))
+
+        self.tab_bluestacks_btn = QPushButton("Android")
+        self.tab_bluestacks_btn.setIcon(get_platform_icon("android"))
+        self.tab_bluestacks_btn.setIconSize(QtCore.QSize(16, 16))
+
         self.tab_other_btn = QPushButton("📁 Local / Non-Steam")
 
         self.tab_buttons = {
@@ -5158,12 +5242,31 @@ class MainWindow(QMainWindow):
         self.tab_all_btn.setText(f"🎮 All Games ({total_game_count})")
         self.tab_fav_btn.setText(f"⭐ Favorites ({fav_count})")
         self.tab_software_btn.setText(f"💻 Software ({software_count})")
-        self.tab_steam_btn.setText(f"♨ Steam ({counts['steam']})")
-        self.tab_epic_btn.setText(f"⚡ Epic ({counts['epic']})")
-        self.tab_ubisoft_btn.setText(f"🌀 Ubisoft ({counts['ubisoft']})")
-        self.tab_gog_btn.setText(f"👾 GOG ({counts['gog']})")
-        self.tab_ea_btn.setText(f"🎯 EA ({counts['ea']})")
-        self.tab_bluestacks_btn.setText(f"📱 Android ({counts['bluestacks']})")
+
+        self.tab_steam_btn.setIcon(get_platform_icon("steam"))
+        self.tab_steam_btn.setIconSize(QtCore.QSize(16, 16))
+        self.tab_steam_btn.setText(f"Steam ({counts['steam']})")
+
+        self.tab_epic_btn.setIcon(get_platform_icon("epic"))
+        self.tab_epic_btn.setIconSize(QtCore.QSize(16, 16))
+        self.tab_epic_btn.setText(f"Epic ({counts['epic']})")
+
+        self.tab_ubisoft_btn.setIcon(get_platform_icon("ubisoft"))
+        self.tab_ubisoft_btn.setIconSize(QtCore.QSize(16, 16))
+        self.tab_ubisoft_btn.setText(f"Ubisoft ({counts['ubisoft']})")
+
+        self.tab_gog_btn.setIcon(get_platform_icon("gog"))
+        self.tab_gog_btn.setIconSize(QtCore.QSize(16, 16))
+        self.tab_gog_btn.setText(f"GOG ({counts['gog']})")
+
+        self.tab_ea_btn.setIcon(get_platform_icon("ea"))
+        self.tab_ea_btn.setIconSize(QtCore.QSize(16, 16))
+        self.tab_ea_btn.setText(f"EA ({counts['ea']})")
+
+        self.tab_bluestacks_btn.setIcon(get_platform_icon("android"))
+        self.tab_bluestacks_btn.setIconSize(QtCore.QSize(16, 16))
+        self.tab_bluestacks_btn.setText(f"Android ({counts['bluestacks']})")
+
         self.tab_other_btn.setText(f"📁 Local / Other ({counts['other']})")
 
         # Dynamically show launcher tabs if count > 0, or if currently active
@@ -5457,7 +5560,9 @@ class MainWindow(QMainWindow):
             self.add_btn.setEnabled(True)
         if hasattr(self, 'steam_sync_btn') and self.steam_sync_btn:
             self.steam_sync_btn.setEnabled(True)
-            self.steam_sync_btn.setText("♨ Sync Steam")
+            self.steam_sync_btn.setText("Sync Steam")
+            self.steam_sync_btn.setIcon(get_platform_icon("steam"))
+            self.steam_sync_btn.setIconSize(QtCore.QSize(16, 16))
 
         if res.get("status") == "error":
             QMessageBox.warning(
@@ -5485,7 +5590,7 @@ class MainWindow(QMainWindow):
             f"☁️ เกมในคลังรอโหลด: {uninstalled_count} เกม (แสดงเป็นปกสีเทา)\n\n"
             f"💡 เพิ่มเกมใหม่เข้าสู่ GameVault: {new_items} รายการ"
         )
-        QMessageBox.information(self, "♨ ซิงค์คลัง Steam สำเร็จ", msg)
+        QMessageBox.information(self, "ซิงค์คลัง Steam สำเร็จ", msg)
 
     def on_scan_progress(self, folder_name: str, current: int, total: int):
         self.progress_label.setText(f"Scanning ({current}/{total}): {folder_name}")
@@ -6007,6 +6112,7 @@ class MainWindow(QMainWindow):
             if visible_count == 0:
                 self.scroll_area.setVisible(False)
                 self.empty_widget.setVisible(True)
+                self.empty_icon.setPixmap(QPixmap())
                 if filter_text:
                     self.empty_icon.setText("🔍")
                     self.empty_title.setText(f"No results for '{filter_text}'")
@@ -6020,7 +6126,11 @@ class MainWindow(QMainWindow):
                     self.empty_title.setText("ยังไม่มีโปรแกรมหรือ Software ในคลัง")
                     self.empty_desc.setText("ลากไฟล์ .exe หรือ Shortcut (.lnk) ของโปรแกรมมาวางที่นี่ได้ทันที\nหรือกดปุ่ม ➕ Add ด้านบนแล้วเลือก 'เพิ่มโปรแกรม' ได้เลยครับ")
                 elif self.current_filter_category == "steam":
-                    self.empty_icon.setText("♨")
+                    pix = get_platform_pixmap("steam", 56, 56)
+                    if not pix.isNull():
+                        self.empty_icon.setPixmap(pix)
+                    else:
+                        self.empty_icon.setText("🎮")
                     self.empty_title.setText("No Steam games detected")
                     self.empty_desc.setText("Games inside SteamLibrary / steamapps folders will appear here.")
                 elif self.current_filter_category == "other":
