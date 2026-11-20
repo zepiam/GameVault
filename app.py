@@ -174,6 +174,7 @@ def get_executable_icon(target_path: str, lnk_path: str = "", target_size: int =
 
 
 _COVER_CACHE: Dict[str, QPixmap] = {}
+_RAW_COVER_CACHE: Dict[str, QPixmap] = {}
 
 def get_cached_cover_pixmap(cover_path: str, poster_width: int, poster_height: int, is_grayscale: bool = False) -> Optional[QPixmap]:
     """Caches scaled cover posters in memory to avoid repetitive disk I/O and expensive smooth transformations."""
@@ -185,10 +186,14 @@ def get_cached_cover_pixmap(cover_path: str, poster_width: int, poster_height: i
         return _COVER_CACHE[cache_key]
 
     try:
-        pix = QPixmap(cover_path)
-        if pix.isNull():
-            return None
-        scaled = pix.scaled(
+        raw_pix = _RAW_COVER_CACHE.get(cover_path)
+        if raw_pix is None or raw_pix.isNull():
+            raw_pix = QPixmap(cover_path)
+            if raw_pix.isNull():
+                return None
+            _RAW_COVER_CACHE[cover_path] = raw_pix
+
+        scaled = raw_pix.scaled(
             poster_width, poster_height,
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,
             Qt.TransformationMode.SmoothTransformation
@@ -207,14 +212,16 @@ def get_cached_cover_pixmap(cover_path: str, poster_width: int, poster_height: i
 
 def clear_cover_cache(cover_path: Optional[str] = None):
     """Invalidates cached cover pixmaps when a cover is downloaded or updated."""
-    global _COVER_CACHE, _TRAY_THUMB_CACHE
+    global _COVER_CACHE, _RAW_COVER_CACHE, _TRAY_THUMB_CACHE
     if cover_path:
+        _RAW_COVER_CACHE.pop(cover_path, None)
         keys_to_del = [k for k in _COVER_CACHE if k.startswith(f"{cover_path}|")]
         for k in keys_to_del:
             _COVER_CACHE.pop(k, None)
         _TRAY_THUMB_CACHE.pop(cover_path, None)
     else:
         _COVER_CACHE.clear()
+        _RAW_COVER_CACHE.clear()
         _TRAY_THUMB_CACHE.clear()
 
 
@@ -2180,7 +2187,6 @@ class SettingsDialog(QDialog):
                 self.main_window.update_steam_btn_visibility()
                 self.main_window.rearrange_grid()
 
-        QMessageBox.information(self, "Saved", "บันทึกการตั้งค่าเรียบร้อยแล้ว!")
         self.accept()
 
     def trigger_steam_sync_from_settings(self):
@@ -5809,21 +5815,33 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Fast path: dynamically center the current grid margins instantly with zero lag
+        # Fast path: dynamically update grid margins and check if re-pack or resizing is needed
         viewport_w = self.scroll_area.viewport().width()
+        if viewport_w < 300:
+            viewport_w = max(300, self.width() - 32)
+
         spacing = 14
         base_size = max(120, getattr(self, "card_size", 185))
-        usable_w = max(280, viewport_w - 20)
+        side_pad = 14
+        usable_w = max(280, viewport_w - (side_pad * 2))
         cols = max(1, (usable_w + spacing) // (base_size + spacing))
+        effective_card_width = max(120, (usable_w - (cols - 1) * spacing) // cols)
 
         last_cols = getattr(self, "_last_rendered_columns", None)
+        last_card_w = getattr(self, "_last_rendered_card_w", None)
         if last_cols == cols and self.grid_layout.count() > 0:
-            total_grid_w = cols * base_size + (cols - 1) * spacing
-            side_margin = max(4, (viewport_w - total_grid_w) // 2)
+            total_grid_w = cols * effective_card_width + (cols - 1) * spacing
+            side_margin = max(side_pad, (viewport_w - total_grid_w) // 2)
             self.grid_layout.setContentsMargins(side_margin, 6, side_margin, 16)
+            if last_card_w is not None and abs(last_card_w - effective_card_width) >= 4:
+                self.resize_debounce_timer.start(50)
         else:
-            # Column count boundary crossed or initial layout: debounce re-pack slightly (45ms)
-            self.resize_debounce_timer.start(45)
+            # Column count boundary crossed or initial layout: debounce re-pack slightly
+            self.resize_debounce_timer.start(50)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QtCore.QTimer.singleShot(60, lambda: self.rearrange_grid(update_tabs=False))
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -5840,25 +5858,38 @@ class MainWindow(QMainWindow):
 
         # ---------------- Responsive Dynamic Grid Calculation ----------------
         viewport_w = self.scroll_area.viewport().width()
+        if viewport_w < 300:
+            viewport_w = max(300, self.width() - 32)
+
         spacing = 14
         base_size = max(120, self.card_size)
-        usable_w = max(280, viewport_w - 20)
+        side_pad = 14
+
+        usable_w = max(280, viewport_w - (side_pad * 2))
         columns = max(1, (usable_w + spacing) // (base_size + spacing))
-        effective_card_width = base_size
+        # Responsive card sizing: expand cards to fit the window frame edge-to-edge
+        effective_card_width = max(120, (usable_w - (columns - 1) * spacing) // columns)
 
         total_grid_w = columns * effective_card_width + (columns - 1) * spacing
-        side_margin = max(4, (viewport_w - total_grid_w) // 2)
+        side_margin = max(side_pad, (viewport_w - total_grid_w) // 2)
         self.grid_layout.setContentsMargins(side_margin, 6, side_margin, 16)
 
-        # Fast path: if column count, category, filter text, and card size haven't changed,
+        # Ensure column slots have equal minimum width
+        prev_cols = getattr(self, "_last_rendered_columns", 0) or 0
+        for c_idx in range(max(columns, prev_cols)):
+            self.grid_layout.setColumnMinimumWidth(c_idx, effective_card_width if c_idx < columns else 0)
+
+        # Fast path: if column count, card width, category, filter text, and card size haven't changed,
         # cards are already in exact positions and only margins needed updating!
         last_cols = getattr(self, "_last_rendered_columns", None)
+        last_card_w = getattr(self, "_last_rendered_card_w", None)
         last_cat = getattr(self, "_last_rendered_category", None)
         last_filter = getattr(self, "_last_rendered_filter", None)
         last_size = getattr(self, "_last_rendered_card_size", None)
         last_count = getattr(self, "_last_rendered_count", None)
 
         if (last_cols == columns and
+            last_card_w == effective_card_width and
             last_cat == self.current_filter_category and
             last_filter == filter_text and
             last_size == base_size and
@@ -5923,7 +5954,7 @@ class MainWindow(QMainWindow):
                     card.action_requested.connect(self.handle_card_action)
                     self.card_widgets[game["id"]] = card
                 else:
-                    if card.card_width != effective_card_width:
+                    if abs(card.card_width - effective_card_width) >= 2:
                         card.set_card_size(effective_card_width)
 
                 r = current_row + (idx // columns)
@@ -5960,7 +5991,7 @@ class MainWindow(QMainWindow):
                             card.action_requested.connect(self.handle_card_action)
                             self.card_widgets[game["id"]] = card
                         else:
-                            if card.card_width != effective_card_width:
+                            if abs(card.card_width - effective_card_width) >= 2:
                                 card.set_card_size(effective_card_width)
 
                         r = current_row + (idx // columns)
@@ -6032,6 +6063,7 @@ class MainWindow(QMainWindow):
                 self.count_badge.setText(f"{visible_count} / {len(valid_games)} Games")
 
             self._last_rendered_columns = columns
+            self._last_rendered_card_w = effective_card_width
             self._last_rendered_category = self.current_filter_category
             self._last_rendered_filter = filter_text
             self._last_rendered_card_size = base_size
@@ -6548,6 +6580,7 @@ class MainWindow(QMainWindow):
             ctypes.windll.user32.SetForegroundWindow(hwnd)
         except Exception:
             pass
+        QtCore.QTimer.singleShot(60, lambda: self.rearrange_grid(update_tabs=False))
 
     def quit_application(self):
         self._force_quit = True
