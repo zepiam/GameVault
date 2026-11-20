@@ -415,7 +415,7 @@ class TrayTwoColumnRecentWidget(QWidget):
 
         # Left Column: GameVault items
         col_gv = self._build_column(
-            title="📁  เกมใน GameVault",
+            title="📁  GameVault Library",
             count_str=f"{len(gv_items)}",
             items=gv_items
         )
@@ -429,7 +429,7 @@ class TrayTwoColumnRecentWidget(QWidget):
 
         # Right Column: Steam items
         col_steam = self._build_column(
-            title="♨  เกมจาก Steam",
+            title="♨  Steam Library",
             count_str=f"{len(steam_items)}",
             items=steam_items
         )

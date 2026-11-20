@@ -58,7 +58,7 @@ def get_current_version() -> str:
         m = re.search(r'CURRENT_VERSION\s*=\s*"([^"]+)"', content)
         if m:
             return m.group(1)
-    return "1.3.6"
+    return "1.3.7"
 
 
 def bump_patch_version(ver_str: str) -> str:
