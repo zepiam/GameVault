@@ -3097,9 +3097,11 @@ class GameDetailDialog(QDialog):
         is_sw = bool(self.game.get("is_software") or self.game.get("item_type") == "software" or get_game_platform(self.game) == "software")
         self.is_sw = is_sw
 
-        is_installed = bool(self.game.get("is_installed", True))
-        has_steam_appid = bool(self.game.get("appid"))
-        if not is_installed:
+        has_valid_exe = bool(self.game.get("exe_path") and os.path.exists(self.game.get("exe_path")))
+        is_installed = bool(self.game.get("is_installed", True)) or has_valid_exe
+        is_steam = is_steam_game(self.game)
+        has_steam_appid = bool(self.game.get("appid")) and is_steam
+        if not is_installed and is_steam:
             play_btn = QPushButton("📥 INSTALL VIA STEAM")
             play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             play_btn.setFixedHeight(44)
@@ -3116,7 +3118,7 @@ class GameDetailDialog(QDialog):
             play_btn.clicked.connect(self.launch_game)
             left_col.addWidget(play_btn)
         else:
-            btn_text = "♨ PLAY VIA STEAM" if (has_steam_appid and not is_sw) else ("▶ START PROGRAM" if is_sw else "▶ PLAY GAME")
+            btn_text = "♨ PLAY VIA STEAM" if (is_steam and has_steam_appid and not is_sw) else ("▶ START PROGRAM" if is_sw else "▶ PLAY GAME")
             play_btn = QPushButton(btn_text)
             play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             play_btn.setFixedHeight(44)
@@ -3133,7 +3135,7 @@ class GameDetailDialog(QDialog):
             play_btn.clicked.connect(self.launch_game)
             left_col.addWidget(play_btn)
 
-            if has_steam_appid and not is_sw:
+            if is_steam and has_steam_appid and not is_sw:
                 direct_exe_btn = QPushButton("🎯 Launch .exe Directly")
                 direct_exe_btn.setToolTip("เปิดไฟล์ .exe ตัวเกมตรง ๆ โดยไม่ผ่าน Steam client")
                 direct_exe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3291,8 +3293,8 @@ class GameDetailDialog(QDialog):
             status_box.addStretch()
             meta_lay.addLayout(status_box)
 
-        # Steam Launch Options row if game has appid
-        if self.game.get("appid"):
+        # Steam Launch Options row if game is actually a Steam game
+        if is_steam and self.game.get("appid"):
             try:
                 import steam_sync
                 steam_opts = steam_sync.get_steam_launch_options(self.game["appid"])
@@ -4161,15 +4163,17 @@ class GameCard(QFrame):
             }}
         """)
 
-        is_installed = bool(self.game.get("is_installed", True))
+        has_valid_exe = bool(self.game.get("exe_path") and os.path.exists(self.game.get("exe_path")))
+        is_installed = bool(self.game.get("is_installed", True)) or has_valid_exe
         is_sw = bool(self.game.get("is_software") or self.game.get("item_type") == "software" or get_game_platform(self.game) == "software")
-        has_steam_appid = bool(self.game.get("appid"))
+        is_steam = is_steam_game(self.game)
+        has_steam_appid = bool(self.game.get("appid")) and is_steam
 
         act_play_direct = None
-        if not is_installed:
+        if not is_installed and is_steam:
             act_play = menu.addAction("📥 ติดตั้งเกมผ่าน Steam (Install)")
         else:
-            if has_steam_appid and not is_sw:
+            if is_steam and has_steam_appid and not is_sw:
                 act_play = menu.addAction("▶ Play via Steam (เปิดผ่าน Steam)")
                 act_play_direct = menu.addAction("🎯 Launch .exe Directly (เปิดไฟล์ตรง)")
             else:
@@ -6106,19 +6110,25 @@ class MainWindow(QMainWindow):
         self.update_tab_styles()
 
     def launch_game(self, game: Dict, force_direct_exe: bool = False):
-        # 0. If game is not installed (e.g. from Steam library), launch Steam install prompt
-        if not bool(game.get("is_installed", True)):
-            appid = game.get("appid")
-            if appid:
+        exe_path = game.get("exe_path")
+        ext = os.path.splitext(exe_path)[1].lower() if exe_path else ""
+        has_valid_exe = bool(exe_path and os.path.exists(exe_path))
+        is_steam = is_steam_game(game)
+        appid = game.get("appid")
+        try:
+            aid_int = int(appid) if appid else None
+        except (ValueError, TypeError):
+            aid_int = None
+
+        # 0. If game is an uninstalled Steam game (belonging to Steam and NO valid executable exists on disk)
+        if is_steam and not has_valid_exe and not bool(game.get("is_installed", False)):
+            if aid_int:
                 try:
-                    os.startfile(f"steam://install/{appid}")
+                    os.startfile(f"steam://install/{aid_int}")
                     return
                 except Exception as e:
                     QMessageBox.warning(self, "Steam Error", f"ไม่สามารถเปิดคำสั่งติดตั้ง Steam ได้:\n{e}")
                     return
-
-        exe_path = game.get("exe_path")
-        ext = os.path.splitext(exe_path)[1].lower() if exe_path else ""
 
         # 1. If game was added via shortcut (.lnk), only launch lnk if exe_path is not an explicit custom script (.bat/.cmd)
         if ext not in ('.bat', '.cmd') and not force_direct_exe:
@@ -6132,17 +6142,9 @@ class MainWindow(QMainWindow):
                     pass
 
         # 2. Steam Game Launch Handling:
-        # If the game has an appid and is a Steam game:
-        # Unless the user specified a custom script (.bat/.cmd) or explicitly requested force_direct_exe,
-        # launch via Steam protocol: steam://rungameid/<appid>
-        # This guarantees native Steam Launch Options, Steam Overlay, Cloud Sync, and Steam Input!
-        appid = game.get("appid")
-        try:
-            aid_int = int(appid) if appid else None
-        except (ValueError, TypeError):
-            aid_int = None
-
-        if aid_int and ext not in ('.bat', '.cmd') and not force_direct_exe:
+        # ONLY if the game is ACTUALLY a Steam game (installed in SteamLibrary / steamapps or source is steam):
+        # And not a custom script (.bat/.cmd) and not explicitly requested force_direct_exe:
+        if is_steam and aid_int and ext not in ('.bat', '.cmd') and not force_direct_exe:
             try:
                 os.startfile(f"steam://rungameid/{aid_int}")
                 self.db.record_play(game["id"])
@@ -6150,6 +6152,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 print(f"[launch_game] steam://rungameid/{aid_int} failed: {e}, falling back to direct exe")
 
+        # 3. For ALL non-Steam games (or if force_direct_exe or fallback):
         if not exe_path or not os.path.exists(exe_path):
             QMessageBox.critical(
                 self, "Error", f"Executable / Target not found:\n{exe_path}\nPlease re-assign executable path."
@@ -6159,7 +6162,7 @@ class MainWindow(QMainWindow):
         folder = game.get("folder_path") or os.path.dirname(exe_path)
         launch_args = game.get("launch_args", "")
         # If no custom launch_args in GameVault and it's a Steam game, auto-inject Steam LaunchOptions
-        if not launch_args and aid_int:
+        if not launch_args and is_steam and aid_int:
             try:
                 import steam_sync
                 steam_opts = steam_sync.get_steam_launch_options(aid_int)

@@ -29,6 +29,11 @@ class LibraryDB:
                     elif isinstance(data, dict):
                         self.games = data.get("games", [])
                         self.settings = data.get("settings", {"card_size": 185})
+                    # Ensure is_installed is boolean True if valid executable exists on disk
+                    for g in self.games:
+                        if g.get("is_installed") is None:
+                            if g.get("exe_path") and os.path.exists(g.get("exe_path")):
+                                g["is_installed"] = True
             except Exception as e:
                 print(f"[LibraryDB] Error loading {self.db_path}: {e}")
                 self.games = []
@@ -231,10 +236,29 @@ class LibraryDB:
             pool = [g for g in pool if not (g.get("source") == "steam" and re.search(r"\bdemo\b", g.get("name", ""), re.IGNORECASE))]
 
         def is_steam(g: Dict) -> bool:
-            return bool(g.get("source") == "steam" or g.get("appid") or (g.get("platform") == "steam"))
+            if g.get("is_software") or g.get("item_type") == "software":
+                return False
+            if g.get("platform") == "steam" or g.get("source") == "steam":
+                return True
+            if g.get("platform") and g.get("platform") != "steam":
+                return False
+            exe = (g.get("exe_path") or "").lower().replace("/", "\\")
+            folder = (g.get("folder_path") or "").lower().replace("/", "\\")
+            lnk = (g.get("lnk_path") or "").lower().replace("/", "\\")
+            full_path = f"{exe} {folder} {lnk}"
+            if "steamlibrary" in full_path or "steamapps" in full_path or "\\steam\\" in full_path:
+                return True
+            if g.get("appid") and not g.get("exe_path"):
+                return True
+            return False
 
-        gv_pool = [g for g in pool if not is_steam(g) and bool(g.get("is_installed", True))]
-        steam_pool = [g for g in pool if is_steam(g) and bool(g.get("is_installed", True))]
+        def is_game_installed(g: Dict) -> bool:
+            if g.get("exe_path") and os.path.exists(g["exe_path"]):
+                return True
+            return bool(g.get("is_installed", False))
+
+        gv_pool = [g for g in pool if not is_steam(g) and is_game_installed(g)]
+        steam_pool = [g for g in pool if is_steam(g) and is_game_installed(g)]
 
         def sort_and_fill(sub_pool: List[Dict]) -> List[Dict]:
             played = [g for g in sub_pool if g.get("last_played") and g.get("last_played", 0) > 0]
